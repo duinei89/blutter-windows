@@ -1,7 +1,6 @@
 name: Build Blutter Windows
 
 on:
-
   workflow_dispatch:
 
   push:
@@ -22,17 +21,17 @@ jobs:
 
     steps:
 
-      # -----------------------------------------
-      # Checkout
-      # -----------------------------------------
+      # ============================================================
+      # 1. Checkout
+      # ============================================================
 
       - name: Checkout repository
         uses: actions/checkout@v4
 
 
-      # -----------------------------------------
-      # Python for BUILD environment
-      # -----------------------------------------
+      # ============================================================
+      # 2. Python for the BUILD environment
+      # ============================================================
 
       - name: Setup Python
         uses: actions/setup-python@v6
@@ -40,9 +39,9 @@ jobs:
           python-version: "3.12"
 
 
-      # -----------------------------------------
-      # .NET
-      # -----------------------------------------
+      # ============================================================
+      # 3. .NET for blutter.exe launcher
+      # ============================================================
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
@@ -50,9 +49,9 @@ jobs:
           dotnet-version: "8.0.x"
 
 
-      # -----------------------------------------
-      # Visual Studio / MSVC
-      # -----------------------------------------
+      # ============================================================
+      # 4. MSVC
+      # ============================================================
 
       - name: Setup MSVC
         uses: ilammy/msvc-dev-cmd@v1
@@ -60,115 +59,316 @@ jobs:
           arch: x64
 
 
-      # -----------------------------------------
-      # Show build environment
-      # -----------------------------------------
+      # ============================================================
+      # 5. Show environment
+      # ============================================================
 
       - name: Show build environment
         shell: powershell
         run: |
+          Write-Host "========================================"
+          Write-Host "Build environment"
+          Write-Host "========================================"
 
-          Write-Host "Python:"
           python --version
-
-          Write-Host "CMake:"
+          dotnet --version
           cmake --version
-
-          Write-Host "Ninja:"
           ninja --version
 
-          Write-Host "Git:"
-          git --version
-
+          Write-Host ""
           Write-Host "MSVC:"
           cl
 
 
-      # -----------------------------------------
-      # Install Python build dependencies
-      # -----------------------------------------
+      # ============================================================
+      # 6. Install Python build dependencies
+      # ============================================================
 
-      - name: Install Blutter Python dependencies
+      - name: Install Python dependencies
         shell: powershell
         run: |
-
           python -m pip install --upgrade pip
 
           python -m pip install `
-            pyelftools `
-            requests
+            requests `
+            pyelftools
 
 
-      # -----------------------------------------
-      # Prepare Windows libraries
-      # -----------------------------------------
+      # ============================================================
+      # 7. Download ICU
+      # ============================================================
 
-      - name: Initialize Blutter Windows environment
+      - name: Download ICU
         shell: powershell
         run: |
 
-          python scripts\init_env_win.py
+          $ErrorActionPreference = "Stop"
+
+          $url = "https://github.com/unicode-org/icu/releases/download/release-73-2/icu4c-73_2-Win64-MSVC2019.zip"
+
+          $dir = "$env:GITHUB_WORKSPACE\external"
+
+          $zip = "$dir\icu-windows.zip"
+
+          $out = "$dir\icu-windows"
+
+          New-Item `
+            -ItemType Directory `
+            -Force `
+            -Path $dir | Out-Null
+
+          Write-Host "Downloading ICU:"
+          Write-Host $url
+
+          Invoke-WebRequest `
+            -Uri $url `
+            -OutFile $zip `
+            -UseBasicParsing `
+            -MaximumRetryCount 5 `
+            -RetryIntervalSec 5
+
+          if (!(Test-Path $zip)) {
+            throw "ICU download failed."
+          }
+
+          Write-Host "Extracting ICU..."
+
+          New-Item `
+            -ItemType Directory `
+            -Force `
+            -Path $out | Out-Null
+
+          Expand-Archive `
+            -Path $zip `
+            -DestinationPath $out `
+            -Force
+
+          Remove-Item $zip -Force
+
+          Write-Host "ICU ready."
 
 
-      # -----------------------------------------
-      # Build initial CLI/package
-      # -----------------------------------------
+      # ============================================================
+      # 8. Download Capstone
+      # ============================================================
+
+      - name: Download Capstone
+        shell: powershell
+        run: |
+
+          $ErrorActionPreference = "Stop"
+
+          $url = "https://github.com/capstone-engine/capstone/releases/download/4.0.2/capstone-4.0.2-win64.zip"
+
+          $dir = "$env:GITHUB_WORKSPACE\external"
+
+          $zip = "$dir\capstone.zip"
+
+          New-Item `
+            -ItemType Directory `
+            -Force `
+            -Path $dir | Out-Null
+
+          Write-Host "Downloading Capstone:"
+          Write-Host $url
+
+          Invoke-WebRequest `
+            -Uri $url `
+            -OutFile $zip `
+            -UseBasicParsing `
+            -MaximumRetryCount 5 `
+            -RetryIntervalSec 5
+
+          if (!(Test-Path $zip)) {
+            throw "Capstone download failed."
+          }
+
+          Write-Host "Extracting Capstone..."
+
+          Expand-Archive `
+            -Path $zip `
+            -DestinationPath $dir `
+            -Force
+
+          Remove-Item $zip -Force
+
+          $capstone = Get-ChildItem `
+            $dir `
+            -Directory |
+            Where-Object {
+              $_.Name -like "capstone-*"
+            } |
+            Select-Object -First 1
+
+          if ($null -eq $capstone) {
+            throw "Could not find extracted Capstone directory."
+          }
+
+          $target = "$dir\capstone"
+
+          if (Test-Path $target) {
+            Remove-Item `
+              $target `
+              -Recurse `
+              -Force
+          }
+
+          Rename-Item `
+            $capstone.FullName `
+            $target
+
+          Write-Host "Capstone ready."
+
+
+      # ============================================================
+      # 9. Prepare bin directory
+      # ============================================================
+
+      - name: Prepare native libraries
+        shell: powershell
+        run: |
+
+          $ErrorActionPreference = "Stop"
+
+          $bin = "$env:GITHUB_WORKSPACE\bin"
+
+          $icu = "$env:GITHUB_WORKSPACE\external\icu-windows"
+
+          $capstone = "$env:GITHUB_WORKSPACE\external\capstone"
+
+          New-Item `
+            -ItemType Directory `
+            -Force `
+            -Path $bin | Out-Null
+
+          Write-Host "Copying Capstone..."
+
+          Copy-Item `
+            "$capstone\capstone.dll" `
+            $bin `
+            -Force
+
+          Write-Host "Copying ICU..."
+
+          Copy-Item `
+            "$icu\bin64\icudt73.dll" `
+            $bin `
+            -Force
+
+          Copy-Item `
+            "$icu\bin64\icuuc73.dll" `
+            $bin `
+            -Force
+
+          Write-Host ""
+          Write-Host "Native libraries:"
+          Get-ChildItem $bin
+
+
+      # ============================================================
+      # 10. Build/test Blutter native environment
+      # ============================================================
+
+      - name: Verify Blutter environment
+        shell: powershell
+        run: |
+
+          Write-Host "Blutter files:"
+          Get-ChildItem `
+            "$env:GITHUB_WORKSPACE" `
+            -Recurse `
+            -File |
+            Select-Object FullName
+
+
+      # ============================================================
+      # 11. Build Windows CLI
+      # ============================================================
 
       - name: Build Windows package
         shell: powershell
         run: |
 
+          $ErrorActionPreference = "Stop"
+
           .\build-windows.ps1
 
 
-      # -----------------------------------------
-      # Test
-      # -----------------------------------------
+      # ============================================================
+      # 12. Test CLI
+      # ============================================================
 
       - name: Test CLI
         shell: powershell
         run: |
 
-          .\dist\blutter\blutter.exe --version
+          $exe = ".\dist\blutter\blutter.exe"
 
-          .\dist\blutter\blutter.exe --help
+          if (!(Test-Path $exe)) {
+            throw "blutter.exe was not generated."
+          }
+
+          Write-Host ""
+          Write-Host "Testing version..."
+          & $exe --version
+
+          if ($LASTEXITCODE -ne 0) {
+            throw "Version test failed."
+          }
+
+          Write-Host ""
+          Write-Host "Testing help..."
+          & $exe --help
+
+          if ($LASTEXITCODE -ne 0) {
+            throw "Help test failed."
+          }
 
 
-      # -----------------------------------------
-      # Package
-      # -----------------------------------------
+      # ============================================================
+      # 13. Package
+      # ============================================================
 
       - name: Create ZIP
         shell: powershell
         run: |
 
+          $ErrorActionPreference = "Stop"
+
+          $zip = ".\dist\blutter-windows-x64.zip"
+
+          if (Test-Path $zip) {
+            Remove-Item $zip -Force
+          }
+
           Compress-Archive `
-            -Path dist\blutter\* `
-            -DestinationPath dist\blutter-windows-x64.zip `
+            -Path ".\dist\blutter\*" `
+            -DestinationPath $zip `
             -CompressionLevel Optimal
 
+          Write-Host ""
+          Write-Host "Created:"
+          Get-Item $zip
 
-      # -----------------------------------------
-      # Upload artifact
-      # -----------------------------------------
 
-      - name: Upload artifact
+      # ============================================================
+      # 14. Upload artifact
+      # ============================================================
+
+      - name: Upload Windows artifact
         uses: actions/upload-artifact@v4
         with:
-
           name: blutter-windows-x64
+          path: dist/blutter-windows-x64.zip
 
-          path: dist\blutter-windows-x64.zip
 
-
-      # -----------------------------------------
-      # GitHub release
-      # -----------------------------------------
+      # ============================================================
+      # 15. GitHub Release
+      # ============================================================
 
       - name: Create GitHub Release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-
           files: |
             dist/blutter-windows-x64.zip
