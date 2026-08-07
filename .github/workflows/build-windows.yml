@@ -1,0 +1,174 @@
+name: Build Blutter Windows
+
+on:
+
+  workflow_dispatch:
+
+  push:
+    branches:
+      - main
+
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+
+  build-windows:
+
+    runs-on: windows-2025
+
+    steps:
+
+      # -----------------------------------------
+      # Checkout
+      # -----------------------------------------
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+
+      # -----------------------------------------
+      # Python for BUILD environment
+      # -----------------------------------------
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+
+      # -----------------------------------------
+      # .NET
+      # -----------------------------------------
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+
+      # -----------------------------------------
+      # Visual Studio / MSVC
+      # -----------------------------------------
+
+      - name: Setup MSVC
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+
+      # -----------------------------------------
+      # Show build environment
+      # -----------------------------------------
+
+      - name: Show build environment
+        shell: powershell
+        run: |
+
+          Write-Host "Python:"
+          python --version
+
+          Write-Host "CMake:"
+          cmake --version
+
+          Write-Host "Ninja:"
+          ninja --version
+
+          Write-Host "Git:"
+          git --version
+
+          Write-Host "MSVC:"
+          cl
+
+
+      # -----------------------------------------
+      # Install Python build dependencies
+      # -----------------------------------------
+
+      - name: Install Blutter Python dependencies
+        shell: powershell
+        run: |
+
+          python -m pip install --upgrade pip
+
+          python -m pip install `
+            pyelftools `
+            requests
+
+
+      # -----------------------------------------
+      # Prepare Windows libraries
+      # -----------------------------------------
+
+      - name: Initialize Blutter Windows environment
+        shell: powershell
+        run: |
+
+          python scripts\init_env_win.py
+
+
+      # -----------------------------------------
+      # Build initial CLI/package
+      # -----------------------------------------
+
+      - name: Build Windows package
+        shell: powershell
+        run: |
+
+          .\build-windows.ps1
+
+
+      # -----------------------------------------
+      # Test
+      # -----------------------------------------
+
+      - name: Test CLI
+        shell: powershell
+        run: |
+
+          .\dist\blutter\blutter.exe --version
+
+          .\dist\blutter\blutter.exe --help
+
+
+      # -----------------------------------------
+      # Package
+      # -----------------------------------------
+
+      - name: Create ZIP
+        shell: powershell
+        run: |
+
+          Compress-Archive `
+            -Path dist\blutter\* `
+            -DestinationPath dist\blutter-windows-x64.zip `
+            -CompressionLevel Optimal
+
+
+      # -----------------------------------------
+      # Upload artifact
+      # -----------------------------------------
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+
+          name: blutter-windows-x64
+
+          path: dist\blutter-windows-x64.zip
+
+
+      # -----------------------------------------
+      # GitHub release
+      # -----------------------------------------
+
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+
+          files: |
+            dist/blutter-windows-x64.zip
