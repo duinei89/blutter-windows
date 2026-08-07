@@ -13,6 +13,7 @@ Write-Host "              BLUTTER WINDOWS BUILD"
 Write-Host "============================================================"
 Write-Host ""
 
+
 # ============================================================
 # 1. CLEAN
 # ============================================================
@@ -36,14 +37,14 @@ New-Item `
 Write-Host ""
 Write-Host "[2/8] Checking MSVC..."
 
-$cl = Get-Command cl.exe -ErrorAction SilentlyContinue
+$clPath = (Get-Command cl.exe -ErrorAction SilentlyContinue).Source
 
-if (!$cl) {
+if (!$clPath) {
     throw "cl.exe was not found. MSVC environment is not initialized."
 }
 
-Write-Host "MSVC:"
-Write-Host $cl.Source
+Write-Host "cl.exe:"
+Write-Host $clPath
 Write-Host ""
 
 
@@ -59,6 +60,10 @@ if (!(Test-Path $LauncherSource)) {
     throw "Launcher source not found: $LauncherSource"
 }
 
+if (Test-Path $LauncherExe) {
+    Remove-Item $LauncherExe -Force
+}
+
 Write-Host "Source:"
 Write-Host "  $LauncherSource"
 
@@ -66,32 +71,30 @@ Write-Host ""
 Write-Host "Output:"
 Write-Host "  $LauncherExe"
 
-if (Test-Path $LauncherExe) {
-    Remove-Item $LauncherExe -Force
-}
-
 Write-Host ""
-Write-Host "Compiling..."
+Write-Host "MSVC compilation:"
 Write-Host ""
 
-# IMPORTANT:
-# launcher.cpp uses std::filesystem.
-# Therefore C++17 or newer is required.
+
+# ------------------------------------------------------------
+# IMPORTANT
 #
-# Do NOT remove /std:c++17.
+# launcher.cpp uses std::filesystem.
+# C++17 is required.
+#
+# Use cmd.exe instead of invoking cl.exe directly from
+# PowerShell. This prevents PowerShell from converting
+# compiler stderr into NativeCommandError.
+# ------------------------------------------------------------
 
-& cl.exe `
-    /nologo `
-    /std:c++17 `
-    /O2 `
-    /EHsc `
-    /MT `
-    /DUNICODE `
-    /D_UNICODE `
-    "/Fe:$LauncherExe" `
-    "$LauncherSource" `
-    /link `
-    /SUBSYSTEM:CONSOLE
+$CompileCommand = @"
+cl.exe /nologo /std:c++17 /O2 /EHsc /MT /DUNICODE /D_UNICODE /Fe:"$LauncherExe" "$LauncherSource" /link /SUBSYSTEM:CONSOLE
+"@
+
+Write-Host $CompileCommand
+Write-Host ""
+
+cmd.exe /d /s /c $CompileCommand
 
 $CompileExitCode = $LASTEXITCODE
 
@@ -104,15 +107,14 @@ if ($CompileExitCode -ne 0) {
 }
 
 if (!(Test-Path $LauncherExe)) {
-    throw "MSVC succeeded but blutter.exe was not created."
+    throw "MSVC reported success but blutter.exe was not created."
 }
 
-Write-Host "Launcher successfully created:"
-Write-Host $LauncherExe
+Write-Host "Native launcher built successfully."
 
 
 # ============================================================
-# 4. COPY BLUTTER
+# 4. COPY BLUTTER SOURCE
 # ============================================================
 
 Write-Host ""
@@ -137,7 +139,7 @@ foreach ($File in $Files) {
             $Package `
             -Force
 
-        Write-Host "Copied $File"
+        Write-Host "Copied: $File"
     }
 }
 
@@ -161,12 +163,12 @@ foreach ($Directory in $Directories) {
         -Recurse `
         -Force
 
-    Write-Host "Copied $Directory"
+    Write-Host "Copied: $Directory"
 }
 
 
 # ============================================================
-# 5. BUNDLED PYTHON
+# 5. DOWNLOAD STANDALONE PYTHON
 # ============================================================
 
 Write-Host ""
@@ -179,6 +181,7 @@ New-Item `
     -Path $PythonDir `
     -Force | Out-Null
 
+
 $Headers = @{
     "User-Agent" = "blutter-windows-builder"
     "Accept" = "application/vnd.github+json"
@@ -187,18 +190,20 @@ $Headers = @{
 $PythonApi = `
     "https://api.github.com/repos/astral-sh/python-build-standalone/releases/latest"
 
-Write-Host "Querying Python release..."
+Write-Host "Querying:"
+Write-Host $PythonApi
+Write-Host ""
 
 $PythonRelease = Invoke-RestMethod `
     -Uri $PythonApi `
     -Headers $Headers `
     -Method Get
 
-Write-Host "Release: $($PythonRelease.tag_name)"
 
-# Current python-build-standalone naming:
-#
-# cpython-3.12.13+20260807-x86_64-pc-windows-msvc-install_only.tar.gz
+Write-Host "Latest standalone Python release:"
+Write-Host $PythonRelease.tag_name
+Write-Host ""
+
 
 $PythonAsset = $PythonRelease.assets |
     Where-Object {
@@ -207,10 +212,12 @@ $PythonAsset = $PythonRelease.assets |
     } |
     Select-Object -First 1
 
+
 if (!$PythonAsset) {
 
     Write-Host ""
-    Write-Host "Available Python 3.12 x64 Windows assets:"
+    Write-Host "Available x64 Windows Python 3.12 assets:"
+    Write-Host ""
 
     $PythonRelease.assets |
         Where-Object {
@@ -224,18 +231,21 @@ if (!$PythonAsset) {
     throw "Could not find CPython 3.12 Windows x64 install_only archive."
 }
 
-Write-Host ""
-Write-Host "Selected:"
+
+Write-Host "Selected Python:"
 Write-Host $PythonAsset.name
 Write-Host ""
+
 
 $PythonArchive = Join-Path `
     $env:TEMP `
     "blutter-python.tar.gz"
 
+
 if (Test-Path $PythonArchive) {
     Remove-Item $PythonArchive -Force
 }
+
 
 curl.exe `
     --location `
@@ -248,12 +258,20 @@ curl.exe `
     --output "$PythonArchive" `
     "$($PythonAsset.browser_download_url)"
 
+
 if ($LASTEXITCODE -ne 0) {
     throw "Python download failed."
 }
 
+
+if (!(Test-Path $PythonArchive)) {
+    throw "Python archive was not downloaded."
+}
+
+
 Write-Host ""
 Write-Host "Extracting Python..."
+
 
 tar.exe `
     -xzf `
@@ -261,13 +279,16 @@ tar.exe `
     -C `
     "$PythonDir"
 
+
 if ($LASTEXITCODE -ne 0) {
     throw "Python extraction failed."
 }
 
+
 Remove-Item `
     $PythonArchive `
     -Force
+
 
 $PythonExe = Get-ChildItem `
     $PythonDir `
@@ -276,23 +297,26 @@ $PythonExe = Get-ChildItem `
     -File |
     Select-Object -First 1
 
+
 if (!$PythonExe) {
     throw "Bundled python.exe was not found."
 }
 
+
 Write-Host ""
 Write-Host "Bundled Python:"
 Write-Host $PythonExe.FullName
+Write-Host ""
 
 & $PythonExe.FullName --version
 
 if ($LASTEXITCODE -ne 0) {
-    throw "Bundled Python failed."
+    throw "Bundled Python failed to execute."
 }
 
 
 # ============================================================
-# 6. INSTALL PYTHON DEPENDENCIES
+# 6. PYTHON DEPENDENCIES
 # ============================================================
 
 Write-Host ""
@@ -305,6 +329,7 @@ Write-Host "[6/8] Installing Python dependencies..."
 if ($LASTEXITCODE -ne 0) {
     throw "pip upgrade failed."
 }
+
 
 & $PythonExe.FullName `
     -m pip install `
@@ -327,9 +352,11 @@ $InitScript = Join-Path `
     $Package `
     "scripts\init_env_win.py"
 
+
 if (!(Test-Path $InitScript)) {
-    throw "init_env_win.py not found."
+    throw "init_env_win.py was not found."
 }
+
 
 Push-Location $Package
 
@@ -341,7 +368,7 @@ try {
     $InitExitCode = $LASTEXITCODE
 
     if ($InitExitCode -ne 0) {
-        throw "Blutter initialization failed with exit code $InitExitCode."
+        throw "init_env_win.py failed with exit code $InitExitCode."
     }
 
 }
@@ -352,35 +379,36 @@ finally {
 
 
 # ============================================================
-# 8. PACKAGE / VERIFY
+# 8. VERIFY
 # ============================================================
 
 Write-Host ""
 Write-Host "[8/8] Verifying package..."
 
 if (!(Test-Path $LauncherExe)) {
-    throw "blutter.exe missing."
+    throw "blutter.exe is missing."
 }
 
 if (!(Test-Path "$Package\python\python.exe")) {
-    throw "Bundled Python missing."
+    throw "Bundled Python is missing."
 }
 
 if (!(Test-Path "$Package\blutter.py")) {
-    throw "blutter.py missing."
+    throw "blutter.py is missing."
 }
 
 if (!(Test-Path "$Package\blutter")) {
-    throw "blutter source directory missing."
+    throw "blutter directory is missing."
 }
 
 if (!(Test-Path "$Package\scripts")) {
-    throw "scripts directory missing."
+    throw "scripts directory is missing."
 }
+
 
 Write-Host ""
 Write-Host "============================================================"
-Write-Host "                  BUILD SUCCESSFUL"
+Write-Host "                 BUILD SUCCESSFUL"
 Write-Host "============================================================"
 Write-Host ""
 
@@ -397,12 +425,4 @@ Write-Host ""
 Write-Host "  blutter.exe libapp.so output"
 Write-Host ""
 
-Write-Host "Package contents:"
-Write-Host ""
-
-Get-ChildItem `
-    $Package `
-    -Recurse `
-    -File |
-    Select-Object FullName, Length |
-    Format-Table -AutoSize
+Write-Host "============================================================"
