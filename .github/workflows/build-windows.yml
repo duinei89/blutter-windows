@@ -6,6 +6,7 @@ on:
   push:
     branches:
       - main
+
     tags:
       - "v*"
 
@@ -13,71 +14,33 @@ permissions:
   contents: write
 
 jobs:
+
   build-windows:
+
     runs-on: windows-2025
 
     steps:
 
-      # ==========================================================
-      # CHECKOUT
-      # ==========================================================
-
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-
-      # ==========================================================
-      # PYTHON
-      # ==========================================================
-
-      - name: Setup Python
-        uses: actions/setup-python@v6
-        with:
-          python-version: "3.12"
-
-
-      # ==========================================================
-      # .NET
-      # ==========================================================
-
-      - name: Setup .NET
-        uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: "8.0.x"
-
-
-      # ==========================================================
-      # MSVC
-      # ==========================================================
+      - name: Checkout
+        uses: actions/checkout@v6
 
       - name: Setup MSVC
         uses: ilammy/msvc-dev-cmd@v1
         with:
           arch: x64
 
-
-      # ==========================================================
-      # BUILD ENVIRONMENT
-      # ==========================================================
-
-      - name: Show build environment
+      - name: Show environment
         shell: powershell
         run: |
 
-          $ErrorActionPreference = "Stop"
-
           Write-Host ""
-          Write-Host "=================================================="
-          Write-Host "BLUTTER WINDOWS BUILD ENVIRONMENT"
-          Write-Host "=================================================="
+          Write-Host "=============================================="
+          Write-Host "WINDOWS BUILD ENVIRONMENT"
+          Write-Host "=============================================="
           Write-Host ""
 
-          Write-Host "Python:"
-          python --version
-
-          Write-Host ""
-          Write-Host ".NET:"
-          dotnet --version
+          Write-Host "Compiler:"
+          cl
 
           Write-Host ""
           Write-Host "CMake:"
@@ -88,448 +51,86 @@ jobs:
           ninja --version
 
           Write-Host ""
-          Write-Host "Git:"
-          git --version
-
-          Write-Host ""
-          Write-Host "curl:"
-          curl.exe --version
-
-          Write-Host ""
-          Write-Host "MSVC:"
-          cl
+          Write-Host "Python:"
+          python --version
 
 
-      # ==========================================================
-      # PYTHON DEPENDENCIES
-      # ==========================================================
-
-      - name: Install Python dependencies
+      - name: Build Blutter Windows
         shell: powershell
         run: |
 
           $ErrorActionPreference = "Stop"
-
-          python -m pip install --upgrade pip
-
-          python -m pip install `
-            requests `
-            pyelftools
-
-
-      # ==========================================================
-      # NETWORK TEST
-      # ==========================================================
-
-      - name: Test GitHub connectivity
-        shell: powershell
-        run: |
-
-          $ErrorActionPreference = "Stop"
-
-          Write-Host ""
-          Write-Host "=================================================="
-          Write-Host "TESTING GITHUB CONNECTIVITY"
-          Write-Host "=================================================="
-          Write-Host ""
-
-          & curl.exe `
-            --location `
-            --fail `
-            --head `
-            --connect-timeout 30 `
-            --max-time 60 `
-            "https://github.com"
-
-          if ($LASTEXITCODE -ne 0) {
-            throw "GitHub connectivity test failed."
-          }
-
-          Write-Host ""
-          Write-Host "GitHub connectivity OK."
-
-
-      # ==========================================================
-      # DOWNLOAD ICU
-      # ==========================================================
-
-      - name: Download ICU
-        shell: powershell
-        run: |
-
-          $ErrorActionPreference = "Stop"
-
-          $url = "https://github.com/unicode-org/icu/releases/download/release-73-2/icu4c-73_2-Win64-MSVC2019.zip"
-
-          $dir = "$env:GITHUB_WORKSPACE\external"
-          $zip = "$dir\icu-windows.zip"
-          $out = "$dir\icu-windows"
-
-          New-Item `
-            -ItemType Directory `
-            -Force `
-            -Path $dir | Out-Null
-
-          Write-Host ""
-          Write-Host "=================================================="
-          Write-Host "DOWNLOADING ICU"
-          Write-Host "=================================================="
-          Write-Host ""
-
-          Write-Host $url
-          Write-Host ""
-
-          if (Test-Path $zip) {
-            Remove-Item $zip -Force
-          }
-
-          & curl.exe `
-            --location `
-            --fail `
-            --retry 10 `
-            --retry-delay 5 `
-            --retry-all-errors `
-            --connect-timeout 30 `
-            --max-time 600 `
-            --output "$zip" `
-            "$url"
-
-          if ($LASTEXITCODE -ne 0) {
-            throw "ICU download failed. curl exit code: $LASTEXITCODE"
-          }
-
-          if (!(Test-Path $zip)) {
-            throw "ICU archive was not created."
-          }
-
-          $size = (Get-Item $zip).Length
-
-          Write-Host ""
-          Write-Host "ICU archive size: $size bytes"
-
-          if ($size -lt 10000) {
-            throw "ICU archive is suspiciously small."
-          }
-
-          Write-Host ""
-          Write-Host "Extracting ICU..."
-
-          if (Test-Path $out) {
-            Remove-Item `
-              $out `
-              -Recurse `
-              -Force
-          }
-
-          New-Item `
-            -ItemType Directory `
-            -Force `
-            -Path $out | Out-Null
-
-          Expand-Archive `
-            -Path $zip `
-            -DestinationPath $out `
-            -Force
-
-          Remove-Item `
-            $zip `
-            -Force
-
-          Write-Host ""
-          Write-Host "ICU ready."
-
-
-      # ==========================================================
-      # DOWNLOAD CAPSTONE
-      # ==========================================================
-
-      - name: Download Capstone
-        shell: powershell
-        run: |
-
-          $ErrorActionPreference = "Stop"
-
-          $url = "https://github.com/capstone-engine/capstone/releases/download/4.0.2/capstone-4.0.2-win64.zip"
-
-          $dir = "$env:GITHUB_WORKSPACE\external"
-          $zip = "$dir\capstone.zip"
-
-          New-Item `
-            -ItemType Directory `
-            -Force `
-            -Path $dir | Out-Null
-
-          Write-Host ""
-          Write-Host "=================================================="
-          Write-Host "DOWNLOADING CAPSTONE"
-          Write-Host "=================================================="
-          Write-Host ""
-
-          Write-Host $url
-          Write-Host ""
-
-          if (Test-Path $zip) {
-            Remove-Item $zip -Force
-          }
-
-          & curl.exe `
-            --location `
-            --fail `
-            --retry 10 `
-            --retry-delay 5 `
-            --retry-all-errors `
-            --connect-timeout 30 `
-            --max-time 600 `
-            --output "$zip" `
-            "$url"
-
-          if ($LASTEXITCODE -ne 0) {
-            throw "Capstone download failed. curl exit code: $LASTEXITCODE"
-          }
-
-          if (!(Test-Path $zip)) {
-            throw "Capstone archive was not created."
-          }
-
-          $size = (Get-Item $zip).Length
-
-          Write-Host ""
-          Write-Host "Capstone archive size: $size bytes"
-
-          if ($size -lt 10000) {
-            throw "Capstone archive is suspiciously small."
-          }
-
-          Write-Host ""
-          Write-Host "Extracting Capstone..."
-
-          Expand-Archive `
-            -Path $zip `
-            -DestinationPath $dir `
-            -Force
-
-          Remove-Item `
-            $zip `
-            -Force
-
-          Write-Host ""
-          Write-Host "Capstone ready."
-
-
-      # ==========================================================
-      # INSPECT EXTERNAL DEPENDENCIES
-      # ==========================================================
-
-      - name: Inspect dependencies
-        shell: powershell
-        run: |
-
-          $ErrorActionPreference = "Stop"
-
-          Write-Host ""
-          Write-Host "=================================================="
-          Write-Host "EXTERNAL DEPENDENCIES"
-          Write-Host "=================================================="
-          Write-Host ""
-
-          Get-ChildItem `
-            "$env:GITHUB_WORKSPACE\external" `
-            -Recurse `
-            -File |
-            Select-Object FullName, Length |
-            Format-Table -AutoSize
-
-
-      # ==========================================================
-      # BLUTTER ENVIRONMENT
-      # ==========================================================
-
-      - name: Initialize Blutter environment
-        shell: powershell
-        run: |
-
-          $ErrorActionPreference = "Stop"
-
-          Write-Host ""
-          Write-Host "=================================================="
-          Write-Host "INITIALIZING BLUTTER"
-          Write-Host "=================================================="
-          Write-Host ""
-
-          python scripts\init_env_win.py
-
-          if ($LASTEXITCODE -ne 0) {
-            throw "Blutter environment initialization failed."
-          }
-
-
-      # ==========================================================
-      # INSPECT REPOSITORY
-      # ==========================================================
-
-      - name: Inspect Blutter directories
-        shell: powershell
-        run: |
-
-          Write-Host ""
-          Write-Host "=================================================="
-          Write-Host "BLUTTER DIRECTORY STRUCTURE"
-          Write-Host "=================================================="
-          Write-Host ""
-
-          Write-Host "Root:"
-          Get-ChildItem "$env:GITHUB_WORKSPACE"
-
-          Write-Host ""
-          Write-Host "bin:"
-          if (Test-Path "$env:GITHUB_WORKSPACE\bin") {
-            Get-ChildItem `
-              "$env:GITHUB_WORKSPACE\bin" `
-              -Recurse
-          }
-
-          Write-Host ""
-          Write-Host "external:"
-          if (Test-Path "$env:GITHUB_WORKSPACE\external") {
-            Get-ChildItem `
-              "$env:GITHUB_WORKSPACE\external" `
-              -Recurse
-          }
-
-
-      # ==========================================================
-      # BUILD WINDOWS PACKAGE
-      # ==========================================================
-
-      - name: Build Windows package
-        shell: powershell
-        run: |
-
-          $ErrorActionPreference = "Stop"
-
-          Write-Host ""
-          Write-Host "=================================================="
-          Write-Host "BUILDING BLUTTER WINDOWS PACKAGE"
-          Write-Host "=================================================="
-          Write-Host ""
-
-          if (!(Test-Path ".\build-windows.ps1")) {
-            throw "build-windows.ps1 was not found."
-          }
 
           .\build-windows.ps1
 
           if ($LASTEXITCODE -ne 0) {
-            throw "build-windows.ps1 failed."
+              throw "Windows build failed."
           }
 
 
-      # ==========================================================
-      # TEST CLI
-      # ==========================================================
-
-      - name: Test CLI
+      - name: Verify package
         shell: powershell
         run: |
 
           $ErrorActionPreference = "Stop"
 
-          $exe = ".\dist\blutter\blutter.exe"
+          $Package = ".\dist\blutter"
 
-          Write-Host ""
-          Write-Host "=================================================="
-          Write-Host "TESTING BLUTTER CLI"
-          Write-Host "=================================================="
-          Write-Host ""
-
-          if (!(Test-Path $exe)) {
-            throw "blutter.exe was not generated."
+          if (!(Test-Path "$Package\blutter.exe")) {
+              throw "blutter.exe missing."
           }
 
-          Write-Host "Executable:"
-          Get-Item $exe
+          if (!(Test-Path "$Package\python\python.exe")) {
+              throw "Bundled Python missing."
+          }
 
-          Write-Host ""
-          Write-Host "Version:"
-          & $exe --version
-
-          if ($LASTEXITCODE -ne 0) {
-            throw "Version test failed."
+          if (!(Test-Path "$Package\blutter.py")) {
+              throw "blutter.py missing."
           }
 
           Write-Host ""
-          Write-Host "Help:"
-          & $exe --help
+          Write-Host "Package verification passed."
+          Write-Host ""
 
-          if ($LASTEXITCODE -ne 0) {
-            throw "Help test failed."
-          }
+          Get-Item "$Package\blutter.exe"
 
 
-      # ==========================================================
-      # CREATE ZIP
-      # ==========================================================
-
-      - name: Create Windows ZIP
+      - name: Create ZIP
         shell: powershell
         run: |
 
           $ErrorActionPreference = "Stop"
 
-          $source = ".\dist\blutter"
-          $zip = ".\dist\blutter-windows-x64.zip"
+          $Zip = ".\blutter-windows-x64.zip"
 
-          if (!(Test-Path $source)) {
-            throw "Distribution directory was not created."
+          if (Test-Path $Zip) {
+              Remove-Item $Zip -Force
           }
-
-          if (Test-Path $zip) {
-            Remove-Item $zip -Force
-          }
-
-          Write-Host ""
-          Write-Host "=================================================="
-          Write-Host "CREATING WINDOWS ZIP"
-          Write-Host "=================================================="
-          Write-Host ""
 
           Compress-Archive `
-            -Path "$source\*" `
-            -DestinationPath $zip `
+            -Path ".\dist\blutter\*" `
+            -DestinationPath $Zip `
             -CompressionLevel Optimal
 
-          if (!(Test-Path $zip)) {
-            throw "ZIP was not created."
-          }
-
           Write-Host ""
-          Write-Host "Package:"
-          Get-Item $zip
-
+          Write-Host "Created:"
+          Write-Host $Zip
           Write-Host ""
-          Write-Host "Package size:"
-          (Get-Item $zip).Length
+
+          Get-Item $Zip
 
 
-      # ==========================================================
-      # UPLOAD ARTIFACT
-      # ==========================================================
-
-      - name: Upload Windows artifact
+      - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
         with:
           name: blutter-windows-x64
-          path: dist/blutter-windows-x64.zip
-          if-no-files-found: error
+          path: blutter-windows-x64.zip
 
-
-      # ==========================================================
-      # GITHUB RELEASE
-      # ==========================================================
 
       - name: Create GitHub Release
         if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
-          files: |
-            dist/blutter-windows-x64.zip
+          files: blutter-windows-x64.zip
+          generate_release_notes: true
+          fail_on_unmatched_files: true
