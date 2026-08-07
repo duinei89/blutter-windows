@@ -37,15 +37,14 @@ New-Item `
 Write-Host ""
 Write-Host "[2/8] Checking MSVC..."
 
-$clPath = (Get-Command cl.exe -ErrorAction SilentlyContinue).Source
+$cl = Get-Command cl.exe -ErrorAction SilentlyContinue
 
-if (!$clPath) {
+if (!$cl) {
     throw "cl.exe was not found. MSVC environment is not initialized."
 }
 
 Write-Host "cl.exe:"
-Write-Host $clPath
-Write-Host ""
+Write-Host $cl.Source
 
 
 # ============================================================
@@ -54,7 +53,6 @@ Write-Host ""
 
 Write-Host ""
 Write-Host "[3/8] Building blutter.exe..."
-Write-Host ""
 
 if (!(Test-Path $LauncherSource)) {
     throw "Launcher source not found: $LauncherSource"
@@ -64,28 +62,16 @@ if (Test-Path $LauncherExe) {
     Remove-Item $LauncherExe -Force
 }
 
+Write-Host ""
 Write-Host "Source:"
-Write-Host "  $LauncherSource"
+Write-Host $LauncherSource
 
 Write-Host ""
 Write-Host "Output:"
-Write-Host "  $LauncherExe"
+Write-Host $LauncherExe
 
 Write-Host ""
-Write-Host "MSVC compilation:"
-Write-Host ""
-
-
-# ------------------------------------------------------------
-# IMPORTANT
-#
-# launcher.cpp uses std::filesystem.
-# C++17 is required.
-#
-# Use cmd.exe instead of invoking cl.exe directly from
-# PowerShell. This prevents PowerShell from converting
-# compiler stderr into NativeCommandError.
-# ------------------------------------------------------------
+Write-Host "Compiling..."
 
 $CompileCommand = @"
 cl.exe /nologo /std:c++17 /O2 /EHsc /MT /DUNICODE /D_UNICODE /Fe:"$LauncherExe" "$LauncherSource" /link /SUBSYSTEM:CONSOLE
@@ -100,14 +86,13 @@ $CompileExitCode = $LASTEXITCODE
 
 Write-Host ""
 Write-Host "MSVC exit code: $CompileExitCode"
-Write-Host ""
 
 if ($CompileExitCode -ne 0) {
     throw "launcher.cpp compilation failed with exit code $CompileExitCode."
 }
 
 if (!(Test-Path $LauncherExe)) {
-    throw "MSVC reported success but blutter.exe was not created."
+    throw "MSVC succeeded but blutter.exe was not created."
 }
 
 Write-Host "Native launcher built successfully."
@@ -192,7 +177,6 @@ $PythonApi = `
 
 Write-Host "Querying:"
 Write-Host $PythonApi
-Write-Host ""
 
 $PythonRelease = Invoke-RestMethod `
     -Uri $PythonApi `
@@ -200,9 +184,9 @@ $PythonRelease = Invoke-RestMethod `
     -Method Get
 
 
+Write-Host ""
 Write-Host "Latest standalone Python release:"
 Write-Host $PythonRelease.tag_name
-Write-Host ""
 
 
 $PythonAsset = $PythonRelease.assets |
@@ -232,6 +216,7 @@ if (!$PythonAsset) {
 }
 
 
+Write-Host ""
 Write-Host "Selected Python:"
 Write-Host $PythonAsset.name
 Write-Host ""
@@ -263,21 +248,40 @@ if ($LASTEXITCODE -ne 0) {
     throw "Python download failed."
 }
 
-
 if (!(Test-Path $PythonArchive)) {
     throw "Python archive was not downloaded."
 }
 
 
+# ============================================================
+# EXTRACT PYTHON
+# ============================================================
+
 Write-Host ""
 Write-Host "Extracting Python..."
+
+$PythonTemp = Join-Path `
+    $env:TEMP `
+    "blutter-python-extract"
+
+if (Test-Path $PythonTemp) {
+    Remove-Item `
+        $PythonTemp `
+        -Recurse `
+        -Force
+}
+
+New-Item `
+    -ItemType Directory `
+    -Path $PythonTemp `
+    -Force | Out-Null
 
 
 tar.exe `
     -xzf `
     "$PythonArchive" `
     -C `
-    "$PythonDir"
+    "$PythonTemp"
 
 
 if ($LASTEXITCODE -ne 0) {
@@ -285,30 +289,92 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 
+# ============================================================
+# FLATTEN PYTHON DIRECTORY
+# ============================================================
+
+Write-Host ""
+Write-Host "Installing Python into package..."
+
+$ExtractedPythonRoot = Get-ChildItem `
+    $PythonTemp `
+    -Directory |
+    Select-Object -First 1
+
+
+if (!$ExtractedPythonRoot) {
+    throw "Could not find extracted Python directory."
+}
+
+
+Write-Host "Extracted root:"
+Write-Host $ExtractedPythonRoot.FullName
+
+
+# Copy the CONTENTS of the extracted directory into:
+#
+# dist\blutter\python\
+#
+# instead of creating:
+#
+# dist\blutter\python\python\
+
+Get-ChildItem `
+    $ExtractedPythonRoot.FullName `
+    -Force |
+    ForEach-Object {
+
+        Copy-Item `
+            $_.FullName `
+            $PythonDir `
+            -Recurse `
+            -Force
+    }
+
+
+# Cleanup temporary files
+
+Remove-Item `
+    $PythonTemp `
+    -Recurse `
+    -Force
+
 Remove-Item `
     $PythonArchive `
     -Force
 
 
-$PythonExe = Get-ChildItem `
+# ============================================================
+# FIND PYTHON
+# ============================================================
+
+$PythonExe = Join-Path `
     $PythonDir `
-    -Filter "python.exe" `
-    -Recurse `
-    -File |
-    Select-Object -First 1
+    "python.exe"
 
 
-if (!$PythonExe) {
-    throw "Bundled python.exe was not found."
+if (!(Test-Path $PythonExe)) {
+
+    Write-Host ""
+    Write-Host "Python package contents:"
+    
+    Get-ChildItem `
+        $PythonDir `
+        -Recurse `
+        -File |
+        Select-Object FullName |
+        Format-Table -AutoSize
+
+    throw "python.exe was not installed at $PythonExe"
 }
 
 
 Write-Host ""
 Write-Host "Bundled Python:"
-Write-Host $PythonExe.FullName
+Write-Host $PythonExe
 Write-Host ""
 
-& $PythonExe.FullName --version
+& $PythonExe --version
 
 if ($LASTEXITCODE -ne 0) {
     throw "Bundled Python failed to execute."
@@ -322,7 +388,7 @@ if ($LASTEXITCODE -ne 0) {
 Write-Host ""
 Write-Host "[6/8] Installing Python dependencies..."
 
-& $PythonExe.FullName `
+& $PythonExe `
     -m pip install `
     --upgrade pip
 
@@ -331,7 +397,7 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 
-& $PythonExe.FullName `
+& $PythonExe `
     -m pip install `
     requests `
     pyelftools
@@ -362,7 +428,7 @@ Push-Location $Package
 
 try {
 
-    & $PythonExe.FullName `
+    & $PythonExe `
         $InitScript
 
     $InitExitCode = $LASTEXITCODE
@@ -379,32 +445,48 @@ finally {
 
 
 # ============================================================
-# 8. VERIFY
+# 8. VERIFY PACKAGE
 # ============================================================
 
 Write-Host ""
 Write-Host "[8/8] Verifying package..."
 
-if (!(Test-Path $LauncherExe)) {
-    throw "blutter.exe is missing."
+$RequiredFiles = @(
+    "$Package\blutter.exe",
+    "$Package\blutter.py",
+    "$Package\python\python.exe"
+)
+
+foreach ($RequiredFile in $RequiredFiles) {
+
+    if (!(Test-Path $RequiredFile)) {
+
+        Write-Host ""
+        Write-Host "MISSING:"
+        Write-Host $RequiredFile
+
+        throw "Required package file is missing."
+    }
 }
 
-if (!(Test-Path "$Package\python\python.exe")) {
-    throw "Bundled Python is missing."
+
+$RequiredDirectories = @(
+    "$Package\blutter",
+    "$Package\scripts"
+)
+
+foreach ($RequiredDirectory in $RequiredDirectories) {
+
+    if (!(Test-Path $RequiredDirectory)) {
+
+        throw "Required package directory is missing: $RequiredDirectory"
+    }
 }
 
-if (!(Test-Path "$Package\blutter.py")) {
-    throw "blutter.py is missing."
-}
 
-if (!(Test-Path "$Package\blutter")) {
-    throw "blutter directory is missing."
-}
-
-if (!(Test-Path "$Package\scripts")) {
-    throw "scripts directory is missing."
-}
-
+# ============================================================
+# FINAL PACKAGE INFORMATION
+# ============================================================
 
 Write-Host ""
 Write-Host "============================================================"
@@ -413,11 +495,25 @@ Write-Host "============================================================"
 Write-Host ""
 
 Write-Host "Executable:"
-Get-Item $LauncherExe
+Write-Host $LauncherExe
+
+Write-Host ""
+Write-Host "Python:"
+Write-Host $PythonExe
 
 Write-Host ""
 Write-Host "Package:"
 Write-Host $Package
+
+Write-Host ""
+Write-Host "Final layout:"
+Write-Host ""
+
+Get-ChildItem `
+    $Package `
+    -Directory |
+    Select-Object Name |
+    Format-Table -AutoSize
 
 Write-Host ""
 Write-Host "Usage:"
