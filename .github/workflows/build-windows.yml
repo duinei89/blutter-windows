@@ -6,7 +6,6 @@ on:
   push:
     branches:
       - main
-
     tags:
       - "v*"
 
@@ -20,7 +19,7 @@ jobs:
     steps:
 
       # ==========================================================
-      # Checkout
+      # CHECKOUT
       # ==========================================================
 
       - name: Checkout repository
@@ -28,7 +27,7 @@ jobs:
 
 
       # ==========================================================
-      # Build Python
+      # PYTHON
       # ==========================================================
 
       - name: Setup Python
@@ -58,17 +57,21 @@ jobs:
 
 
       # ==========================================================
-      # Environment information
+      # BUILD ENVIRONMENT
       # ==========================================================
 
       - name: Show build environment
         shell: powershell
         run: |
-          Write-Host "=============================================="
-          Write-Host "BLUTTER WINDOWS BUILD ENVIRONMENT"
-          Write-Host "=============================================="
+
+          $ErrorActionPreference = "Stop"
 
           Write-Host ""
+          Write-Host "=================================================="
+          Write-Host "BLUTTER WINDOWS BUILD ENVIRONMENT"
+          Write-Host "=================================================="
+          Write-Host ""
+
           Write-Host "Python:"
           python --version
 
@@ -85,17 +88,28 @@ jobs:
           ninja --version
 
           Write-Host ""
+          Write-Host "Git:"
+          git --version
+
+          Write-Host ""
+          Write-Host "curl:"
+          curl.exe --version
+
+          Write-Host ""
           Write-Host "MSVC:"
           cl
 
 
       # ==========================================================
-      # Python dependencies
+      # PYTHON DEPENDENCIES
       # ==========================================================
 
       - name: Install Python dependencies
         shell: powershell
         run: |
+
+          $ErrorActionPreference = "Stop"
+
           python -m pip install --upgrade pip
 
           python -m pip install `
@@ -104,7 +118,39 @@ jobs:
 
 
       # ==========================================================
-      # Download ICU
+      # NETWORK TEST
+      # ==========================================================
+
+      - name: Test GitHub connectivity
+        shell: powershell
+        run: |
+
+          $ErrorActionPreference = "Stop"
+
+          Write-Host ""
+          Write-Host "=================================================="
+          Write-Host "TESTING GITHUB CONNECTIVITY"
+          Write-Host "=================================================="
+          Write-Host ""
+
+          & curl.exe `
+            --location `
+            --fail `
+            --head `
+            --connect-timeout 30 `
+            --max-time 60 `
+            "https://github.com"
+
+          if ($LASTEXITCODE -ne 0) {
+            throw "GitHub connectivity test failed."
+          }
+
+          Write-Host ""
+          Write-Host "GitHub connectivity OK."
+
+
+      # ==========================================================
+      # DOWNLOAD ICU
       # ==========================================================
 
       - name: Download ICU
@@ -116,9 +162,7 @@ jobs:
           $url = "https://github.com/unicode-org/icu/releases/download/release-73-2/icu4c-73_2-Win64-MSVC2019.zip"
 
           $dir = "$env:GITHUB_WORKSPACE\external"
-
           $zip = "$dir\icu-windows.zip"
-
           $out = "$dir\icu-windows"
 
           New-Item `
@@ -127,70 +171,45 @@ jobs:
             -Path $dir | Out-Null
 
           Write-Host ""
-          Write-Host "=============================================="
+          Write-Host "=================================================="
           Write-Host "DOWNLOADING ICU"
-          Write-Host "=============================================="
+          Write-Host "=================================================="
           Write-Host ""
 
           Write-Host $url
           Write-Host ""
 
-          $maxRetries = 5
-          $retryInterval = 5
-          $success = $false
-
-          for ($attempt = 1; $attempt -le $maxRetries; $attempt++) {
-
-            try {
-
-              Write-Host "Attempt $attempt of $maxRetries..."
-
-              if (Test-Path $zip) {
-                Remove-Item $zip -Force
-              }
-
-              Invoke-WebRequest `
-                -Uri $url `
-                -OutFile $zip `
-                -UseBasicParsing
-
-              if (Test-Path $zip) {
-
-                $size = (Get-Item $zip).Length
-
-                if ($size -gt 10000) {
-                  $success = $true
-                  break
-                }
-
-              }
-
-              throw "Downloaded ICU archive is invalid."
-
-            }
-            catch {
-
-              Write-Warning $_
-
-              if ($attempt -lt $maxRetries) {
-
-                Write-Host ""
-                Write-Host "Retrying in $retryInterval seconds..."
-                Start-Sleep -Seconds $retryInterval
-
-              }
-            }
+          if (Test-Path $zip) {
+            Remove-Item $zip -Force
           }
 
-          if (-not $success) {
-            throw "ICU download failed after $maxRetries attempts."
+          & curl.exe `
+            --location `
+            --fail `
+            --retry 10 `
+            --retry-delay 5 `
+            --retry-all-errors `
+            --connect-timeout 30 `
+            --max-time 600 `
+            --output "$zip" `
+            "$url"
+
+          if ($LASTEXITCODE -ne 0) {
+            throw "ICU download failed. curl exit code: $LASTEXITCODE"
           }
+
+          if (!(Test-Path $zip)) {
+            throw "ICU archive was not created."
+          }
+
+          $size = (Get-Item $zip).Length
 
           Write-Host ""
-          Write-Host "ICU download successful."
+          Write-Host "ICU archive size: $size bytes"
 
-          Write-Host "Archive size:"
-          (Get-Item $zip).Length
+          if ($size -lt 10000) {
+            throw "ICU archive is suspiciously small."
+          }
 
           Write-Host ""
           Write-Host "Extracting ICU..."
@@ -221,7 +240,7 @@ jobs:
 
 
       # ==========================================================
-      # Download Capstone
+      # DOWNLOAD CAPSTONE
       # ==========================================================
 
       - name: Download Capstone
@@ -233,7 +252,6 @@ jobs:
           $url = "https://github.com/capstone-engine/capstone/releases/download/4.0.2/capstone-4.0.2-win64.zip"
 
           $dir = "$env:GITHUB_WORKSPACE\external"
-
           $zip = "$dir\capstone.zip"
 
           New-Item `
@@ -242,70 +260,45 @@ jobs:
             -Path $dir | Out-Null
 
           Write-Host ""
-          Write-Host "=============================================="
+          Write-Host "=================================================="
           Write-Host "DOWNLOADING CAPSTONE"
-          Write-Host "=============================================="
+          Write-Host "=================================================="
           Write-Host ""
 
           Write-Host $url
           Write-Host ""
 
-          $maxRetries = 5
-          $retryInterval = 5
-          $success = $false
-
-          for ($attempt = 1; $attempt -le $maxRetries; $attempt++) {
-
-            try {
-
-              Write-Host "Attempt $attempt of $maxRetries..."
-
-              if (Test-Path $zip) {
-                Remove-Item $zip -Force
-              }
-
-              Invoke-WebRequest `
-                -Uri $url `
-                -OutFile $zip `
-                -UseBasicParsing
-
-              if (Test-Path $zip) {
-
-                $size = (Get-Item $zip).Length
-
-                if ($size -gt 10000) {
-                  $success = $true
-                  break
-                }
-
-              }
-
-              throw "Downloaded Capstone archive is invalid."
-
-            }
-            catch {
-
-              Write-Warning $_
-
-              if ($attempt -lt $maxRetries) {
-
-                Write-Host ""
-                Write-Host "Retrying in $retryInterval seconds..."
-                Start-Sleep -Seconds $retryInterval
-
-              }
-            }
+          if (Test-Path $zip) {
+            Remove-Item $zip -Force
           }
 
-          if (-not $success) {
-            throw "Capstone download failed after $maxRetries attempts."
+          & curl.exe `
+            --location `
+            --fail `
+            --retry 10 `
+            --retry-delay 5 `
+            --retry-all-errors `
+            --connect-timeout 30 `
+            --max-time 600 `
+            --output "$zip" `
+            "$url"
+
+          if ($LASTEXITCODE -ne 0) {
+            throw "Capstone download failed. curl exit code: $LASTEXITCODE"
           }
+
+          if (!(Test-Path $zip)) {
+            throw "Capstone archive was not created."
+          }
+
+          $size = (Get-Item $zip).Length
 
           Write-Host ""
-          Write-Host "Capstone download successful."
+          Write-Host "Capstone archive size: $size bytes"
 
-          Write-Host "Archive size:"
-          (Get-Item $zip).Length
+          if ($size -lt 10000) {
+            throw "Capstone archive is suspiciously small."
+          }
 
           Write-Host ""
           Write-Host "Extracting Capstone..."
@@ -324,45 +317,88 @@ jobs:
 
 
       # ==========================================================
-      # Inspect downloaded files
+      # INSPECT EXTERNAL DEPENDENCIES
       # ==========================================================
 
       - name: Inspect dependencies
         shell: powershell
         run: |
 
+          $ErrorActionPreference = "Stop"
+
           Write-Host ""
-          Write-Host "=============================================="
-          Write-Host "DOWNLOADED DEPENDENCIES"
-          Write-Host "=============================================="
+          Write-Host "=================================================="
+          Write-Host "EXTERNAL DEPENDENCIES"
+          Write-Host "=================================================="
           Write-Host ""
 
           Get-ChildItem `
             "$env:GITHUB_WORKSPACE\external" `
-            -Recurse |
+            -Recurse `
+            -File |
             Select-Object FullName, Length |
             Format-Table -AutoSize
 
 
       # ==========================================================
-      # Initialize Blutter
+      # BLUTTER ENVIRONMENT
       # ==========================================================
 
       - name: Initialize Blutter environment
         shell: powershell
         run: |
 
+          $ErrorActionPreference = "Stop"
+
           Write-Host ""
-          Write-Host "=============================================="
-          Write-Host "BLUTTER INITIALIZATION"
-          Write-Host "=============================================="
+          Write-Host "=================================================="
+          Write-Host "INITIALIZING BLUTTER"
+          Write-Host "=================================================="
           Write-Host ""
 
           python scripts\init_env_win.py
 
+          if ($LASTEXITCODE -ne 0) {
+            throw "Blutter environment initialization failed."
+          }
+
 
       # ==========================================================
-      # Build Windows package
+      # INSPECT REPOSITORY
+      # ==========================================================
+
+      - name: Inspect Blutter directories
+        shell: powershell
+        run: |
+
+          Write-Host ""
+          Write-Host "=================================================="
+          Write-Host "BLUTTER DIRECTORY STRUCTURE"
+          Write-Host "=================================================="
+          Write-Host ""
+
+          Write-Host "Root:"
+          Get-ChildItem "$env:GITHUB_WORKSPACE"
+
+          Write-Host ""
+          Write-Host "bin:"
+          if (Test-Path "$env:GITHUB_WORKSPACE\bin") {
+            Get-ChildItem `
+              "$env:GITHUB_WORKSPACE\bin" `
+              -Recurse
+          }
+
+          Write-Host ""
+          Write-Host "external:"
+          if (Test-Path "$env:GITHUB_WORKSPACE\external") {
+            Get-ChildItem `
+              "$env:GITHUB_WORKSPACE\external" `
+              -Recurse
+          }
+
+
+      # ==========================================================
+      # BUILD WINDOWS PACKAGE
       # ==========================================================
 
       - name: Build Windows package
@@ -372,34 +408,49 @@ jobs:
           $ErrorActionPreference = "Stop"
 
           Write-Host ""
-          Write-Host "=============================================="
-          Write-Host "BUILDING WINDOWS PACKAGE"
-          Write-Host "=============================================="
+          Write-Host "=================================================="
+          Write-Host "BUILDING BLUTTER WINDOWS PACKAGE"
+          Write-Host "=================================================="
           Write-Host ""
+
+          if (!(Test-Path ".\build-windows.ps1")) {
+            throw "build-windows.ps1 was not found."
+          }
 
           .\build-windows.ps1
 
+          if ($LASTEXITCODE -ne 0) {
+            throw "build-windows.ps1 failed."
+          }
+
 
       # ==========================================================
-      # Test executable
+      # TEST CLI
       # ==========================================================
 
       - name: Test CLI
         shell: powershell
         run: |
 
+          $ErrorActionPreference = "Stop"
+
           $exe = ".\dist\blutter\blutter.exe"
+
+          Write-Host ""
+          Write-Host "=================================================="
+          Write-Host "TESTING BLUTTER CLI"
+          Write-Host "=================================================="
+          Write-Host ""
 
           if (!(Test-Path $exe)) {
             throw "blutter.exe was not generated."
           }
 
-          Write-Host ""
-          Write-Host "=============================================="
-          Write-Host "CLI TEST"
-          Write-Host "=============================================="
-          Write-Host ""
+          Write-Host "Executable:"
+          Get-Item $exe
 
+          Write-Host ""
+          Write-Host "Version:"
           & $exe --version
 
           if ($LASTEXITCODE -ne 0) {
@@ -407,7 +458,7 @@ jobs:
           }
 
           Write-Host ""
-
+          Write-Host "Help:"
           & $exe --help
 
           if ($LASTEXITCODE -ne 0) {
@@ -416,7 +467,7 @@ jobs:
 
 
       # ==========================================================
-      # Package ZIP
+      # CREATE ZIP
       # ==========================================================
 
       - name: Create Windows ZIP
@@ -425,28 +476,43 @@ jobs:
 
           $ErrorActionPreference = "Stop"
 
+          $source = ".\dist\blutter"
           $zip = ".\dist\blutter-windows-x64.zip"
+
+          if (!(Test-Path $source)) {
+            throw "Distribution directory was not created."
+          }
 
           if (Test-Path $zip) {
             Remove-Item $zip -Force
           }
 
+          Write-Host ""
+          Write-Host "=================================================="
+          Write-Host "CREATING WINDOWS ZIP"
+          Write-Host "=================================================="
+          Write-Host ""
+
           Compress-Archive `
-            -Path ".\dist\blutter\*" `
+            -Path "$source\*" `
             -DestinationPath $zip `
             -CompressionLevel Optimal
 
-          Write-Host ""
-          Write-Host "=============================================="
-          Write-Host "PACKAGE CREATED"
-          Write-Host "=============================================="
-          Write-Host ""
+          if (!(Test-Path $zip)) {
+            throw "ZIP was not created."
+          }
 
+          Write-Host ""
+          Write-Host "Package:"
           Get-Item $zip
+
+          Write-Host ""
+          Write-Host "Package size:"
+          (Get-Item $zip).Length
 
 
       # ==========================================================
-      # GitHub Artifact
+      # UPLOAD ARTIFACT
       # ==========================================================
 
       - name: Upload Windows artifact
@@ -454,10 +520,11 @@ jobs:
         with:
           name: blutter-windows-x64
           path: dist/blutter-windows-x64.zip
+          if-no-files-found: error
 
 
       # ==========================================================
-      # GitHub Release
+      # GITHUB RELEASE
       # ==========================================================
 
       - name: Create GitHub Release
