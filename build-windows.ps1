@@ -2,17 +2,18 @@ $ErrorActionPreference = "Stop"
 
 $Root = $PSScriptRoot
 
-$Dist = Join-Path $Root "dist\blutter"
+$Dist = Join-Path $Root "dist"
+$Package = Join-Path $Dist "blutter"
 
 Write-Host ""
-Write-Host "=============================================="
-Write-Host "       BLUTTER WINDOWS BUILD"
-Write-Host "=============================================="
+Write-Host "=================================================="
+Write-Host "BLUTTER WINDOWS BUILD"
+Write-Host "=================================================="
 Write-Host ""
 
-# ------------------------------------------------
-# Clean
-# ------------------------------------------------
+# ==========================================================
+# 1. CLEAN
+# ==========================================================
 
 Write-Host "[1/8] Cleaning distribution..."
 
@@ -20,63 +21,68 @@ if (Test-Path $Dist) {
     Remove-Item $Dist -Recurse -Force
 }
 
-New-Item -ItemType Directory -Force -Path $Dist | Out-Null
+New-Item `
+    -ItemType Directory `
+    -Path $Package `
+    -Force | Out-Null
 
 
-# ------------------------------------------------
-# Build native Windows CLI
-# ------------------------------------------------
+# ==========================================================
+# 2. BUILD C# LAUNCHER
+# ==========================================================
 
 Write-Host "[2/8] Building blutter.exe..."
 
+$Project = Join-Path $Root "launcher\Blutter.Cli.csproj"
+
+if (!(Test-Path $Project)) {
+    throw "Blutter.Cli.csproj not found: $Project"
+}
+
 dotnet publish `
-    "$Root\launcher\Blutter.Cli.csproj" `
-    --configuration Release `
-    --runtime win-x64 `
-    --self-contained true `
-    -p:PublishSingleFile=true `
-    -p:PublishTrimmed=false `
-    -o "$Dist"
+    $Project `
+    -c Release `
+    -r win-x64 `
+    --self-contained false `
+    -p:PublishSingleFile=false `
+    -o $Package
 
-
-# ------------------------------------------------
-# Copy Blutter source
-# ------------------------------------------------
-
-Write-Host "[3/8] Copying Blutter source..."
-
-$BlutterDist = Join-Path $Dist "blutter"
-
-New-Item `
-    -ItemType Directory `
-    -Force `
-    -Path $BlutterDist | Out-Null
-
-
-$Files = @(
-    "blutter.py",
-    "dartvm_fetch_build.py",
-    "extract_dart_info.py"
-)
-
-foreach ($File in $Files) {
-
-    $Source = Join-Path $Root $File
-
-    if (!(Test-Path $Source)) {
-        throw "Required file missing: $Source"
-    }
-
-    Copy-Item `
-        $Source `
-        (Join-Path $BlutterDist $File) `
-        -Force
+if ($LASTEXITCODE -ne 0) {
+    throw "Failed to build blutter.exe"
 }
 
 
-# ------------------------------------------------
-# Copy directories
-# ------------------------------------------------
+# ==========================================================
+# 3. COPY BLUTTER SOURCE
+# ==========================================================
+
+Write-Host "[3/8] Copying Blutter source..."
+
+$SourceFiles = @(
+    "blutter.py",
+    "pubspec.yaml",
+    "README.md",
+    "LICENSE"
+)
+
+foreach ($file in $SourceFiles) {
+
+    $source = Join-Path $Root $file
+
+    if (Test-Path $source) {
+
+        Copy-Item `
+            $source `
+            $Package `
+            -Force
+
+    }
+}
+
+
+# ==========================================================
+# 4. COPY BLUTTER DIRECTORIES
+# ==========================================================
 
 Write-Host "[4/8] Copying Blutter directories..."
 
@@ -84,19 +90,20 @@ $Directories = @(
     "blutter",
     "scripts",
     "bin",
-    "packages",
     "external"
 )
 
-foreach ($Directory in $Directories) {
+foreach ($directory in $Directories) {
 
-    $Source = Join-Path $Root $Directory
+    $source = Join-Path $Root $directory
 
-    if (Test-Path $Source) {
+    if (Test-Path $source) {
+
+        $destination = Join-Path $Package $directory
 
         Copy-Item `
-            $Source `
-            (Join-Path $BlutterDist $Directory) `
+            $source `
+            $destination `
             -Recurse `
             -Force
 
@@ -104,187 +111,297 @@ foreach ($Directory in $Directories) {
 }
 
 
-# ------------------------------------------------
-# Download standalone Python
-# ------------------------------------------------
+# ==========================================================
+# 5. DOWNLOAD STANDALONE PYTHON
+# ==========================================================
 
 Write-Host "[5/8] Downloading standalone Python..."
 
-$PythonDir = Join-Path $Dist "runtime\python"
+$PythonDir = Join-Path $Package "python"
 
-New-Item `
-    -ItemType Directory `
-    -Force `
-    -Path $PythonDir | Out-Null
-
-
-$PythonVersion = "3.12.10"
-$PythonBuild = "20260718"
-
-$PythonArchive = `
-    "cpython-$PythonVersion+$PythonBuild" +
-    "-x86_64-pc-windows-msvc-shared-install_only.tar.gz"
-
-$PythonUrl = `
-    "https://github.com/astral-sh/python-build-standalone/releases/" +
-    "download/$PythonBuild/$PythonArchive"
-
-$PythonTar = Join-Path `
-    $env:TEMP `
-    "python-blutter.tar.gz"
-
-Write-Host "Downloading:"
-Write-Host $PythonUrl
-
-Invoke-WebRequest `
-    -Uri $PythonUrl `
-    -OutFile $PythonTar
-
-
-# ------------------------------------------------
-# Extract Python
-# ------------------------------------------------
-
-Write-Host "[6/8] Extracting Python..."
-
-$PythonTemp = Join-Path `
-    $env:TEMP `
-    "blutter-python"
-
-if (Test-Path $PythonTemp) {
-    Remove-Item $PythonTemp -Recurse -Force
+if (Test-Path $PythonDir) {
+    Remove-Item `
+        $PythonDir `
+        -Recurse `
+        -Force
 }
 
 New-Item `
     -ItemType Directory `
-    -Force `
-    -Path $PythonTemp | Out-Null
+    -Path $PythonDir `
+    -Force | Out-Null
 
 
-tar `
-    -xzf $PythonTar `
-    -C $PythonTemp
+# ----------------------------------------------------------
+# Query latest python-build-standalone release
+# ----------------------------------------------------------
+
+$ReleaseApi = "https://api.github.com/repos/astral-sh/python-build-standalone/releases/latest"
+
+Write-Host ""
+Write-Host "Querying:"
+Write-Host $ReleaseApi
+Write-Host ""
+
+$headers = @{
+    "User-Agent" = "blutter-windows-builder"
+}
+
+$Release = Invoke-RestMethod `
+    -Uri $ReleaseApi `
+    -Headers $headers `
+    -Method Get
+
+if (!$Release) {
+    throw "Unable to query python-build-standalone releases."
+}
+
+Write-Host "Latest standalone Python release:"
+Write-Host $Release.tag_name
+Write-Host ""
 
 
-$PythonRoot = Get-ChildItem `
-    $PythonTemp `
-    -Directory |
+# ----------------------------------------------------------
+# Find CPython 3.12 Windows x64 shared install_only asset
+# ----------------------------------------------------------
+
+$Asset = $Release.assets |
+    Where-Object {
+        $_.name -match "^cpython-3\.12\.[0-9]+\+.*-x86_64-pc-windows-msvc-shared-install_only\.tar\.gz$"
+    } |
     Select-Object -First 1
 
-if ($null -eq $PythonRoot) {
-    throw "Could not find extracted Python directory."
+if (!$Asset) {
+
+    Write-Host ""
+    Write-Host "Available Windows Python 3.12 assets:"
+    Write-Host ""
+
+    $Release.assets |
+        Where-Object {
+            $_.name -match "cpython-3\.12.*windows.*"
+        } |
+        ForEach-Object {
+            Write-Host $_.name
+        }
+
+    throw "Could not find a CPython 3.12 Windows x64 shared install_only archive."
 }
 
-Copy-Item `
-    "$($PythonRoot.FullName)\*" `
-    $PythonDir `
-    -Recurse `
+Write-Host "Selected Python asset:"
+Write-Host $Asset.name
+Write-Host ""
+
+$PythonArchive = Join-Path $env:TEMP "blutter-python.tar.gz"
+
+if (Test-Path $PythonArchive) {
+    Remove-Item `
+        $PythonArchive `
+        -Force
+}
+
+
+# ----------------------------------------------------------
+# Download
+# ----------------------------------------------------------
+
+Write-Host "Downloading:"
+Write-Host $Asset.browser_download_url
+Write-Host ""
+
+& curl.exe `
+    --location `
+    --fail `
+    --retry 10 `
+    --retry-delay 5 `
+    --retry-all-errors `
+    --connect-timeout 30 `
+    --max-time 600 `
+    --output "$PythonArchive" `
+    "$($Asset.browser_download_url)"
+
+if ($LASTEXITCODE -ne 0) {
+    throw "Standalone Python download failed. curl exit code: $LASTEXITCODE"
+}
+
+if (!(Test-Path $PythonArchive)) {
+    throw "Python archive was not downloaded."
+}
+
+$PythonArchiveSize = (Get-Item $PythonArchive).Length
+
+Write-Host ""
+Write-Host "Python archive size: $PythonArchiveSize bytes"
+
+if ($PythonArchiveSize -lt 1000000) {
+    throw "Python archive is suspiciously small."
+}
+
+
+# ==========================================================
+# EXTRACT PYTHON
+# ==========================================================
+
+Write-Host ""
+Write-Host "Extracting standalone Python..."
+
+tar.exe `
+    -xzf `
+    "$PythonArchive" `
+    -C `
+    "$PythonDir"
+
+if ($LASTEXITCODE -ne 0) {
+    throw "Failed to extract standalone Python."
+}
+
+Remove-Item `
+    $PythonArchive `
     -Force
 
 
-# ------------------------------------------------
-# Install Python packages into bundled runtime
-# ------------------------------------------------
+# ----------------------------------------------------------
+# Find python.exe
+# ----------------------------------------------------------
 
-Write-Host "[7/8] Installing Python dependencies..."
-
-$BundledPython = Join-Path `
+$PythonExe = Get-ChildItem `
     $PythonDir `
-    "python.exe"
+    -Filter "python.exe" `
+    -Recurse `
+    -File |
+    Select-Object -First 1
 
-if (!(Test-Path $BundledPython)) {
-    throw "Bundled Python executable was not found."
+if (!$PythonExe) {
+    throw "python.exe was not found inside standalone Python."
 }
 
-& $BundledPython `
+$PythonRoot = $PythonExe.Directory.FullName
+
+Write-Host ""
+Write-Host "Standalone Python:"
+Write-Host $PythonRoot
+Write-Host ""
+
+$PythonVersion = & $PythonExe.FullName --version
+
+Write-Host "Python version:"
+Write-Host $PythonVersion
+
+
+# ==========================================================
+# INSTALL BLUTTER PYTHON DEPENDENCIES
+# ==========================================================
+
+Write-Host ""
+Write-Host "Installing Python dependencies..."
+
+& $PythonExe.FullName `
     -m pip install `
-    --upgrade `
-    pyelftools `
-    requests
-
-
-# ------------------------------------------------
-# Verify
-# ------------------------------------------------
-
-Write-Host "[8/8] Verifying package..."
-
-$Cli = Join-Path `
-    $Dist `
-    "blutter.exe"
-
-if (!(Test-Path $Cli)) {
-    throw "blutter.exe was not generated."
-}
-
-Write-Host ""
-Write-Host "Testing CLI..."
-Write-Host ""
-
-& $Cli --version
+    --upgrade pip
 
 if ($LASTEXITCODE -ne 0) {
-    throw "CLI version test failed."
+    throw "Failed to upgrade pip."
 }
 
-& $Cli --help
+& $PythonExe.FullName `
+    -m pip install `
+    requests `
+    pyelftools
 
 if ($LASTEXITCODE -ne 0) {
-    throw "CLI help test failed."
+    throw "Failed to install Python dependencies."
 }
 
 
-# ------------------------------------------------
-# Create README
-# ------------------------------------------------
+# ==========================================================
+# CREATE PYTHON LAUNCHER
+# ==========================================================
 
-@"
-BLUTTER WINDOWS
-===============
+Write-Host ""
+Write-Host "Creating Python launcher..."
 
-Usage:
+$Launcher = Join-Path $Package "run_blutter.py"
 
-    blutter.exe libapp.so output
+$LauncherContent = @'
+import os
+import sys
+import runpy
 
-IMPORTANT:
+ROOT = os.path.dirname(os.path.abspath(__file__))
 
-Place libflutter.so beside libapp.so.
+sys.path.insert(0, ROOT)
 
-Example:
+script = os.path.join(ROOT, "blutter.py")
 
-    C:\APK\
-        libapp.so
-        libflutter.so
+if not os.path.isfile(script):
+    raise FileNotFoundError(script)
 
-Then:
+runpy.run_path(script, run_name="__main__")
+'@
 
-    blutter.exe C:\APK\libapp.so C:\APK\output
-
-
-Requirements:
-
-- Windows 10/11 x64
-- Android ARM64 Flutter application
-- libapp.so
-- libflutter.so
-
-The package contains its own Python runtime.
-No Python installation is required.
-No Visual Studio installation is required.
-No CMake installation is required.
-"@ | Set-Content `
-    (Join-Path $Dist "README.txt") `
+Set-Content `
+    -Path $Launcher `
+    -Value $LauncherContent `
     -Encoding UTF8
 
 
+# ==========================================================
+# WRITE CONFIGURATION
+# ==========================================================
+
 Write-Host ""
-Write-Host "=============================================="
-Write-Host "             BUILD SUCCESSFUL"
-Write-Host "=============================================="
+Write-Host "Creating configuration..."
+
+$Config = Join-Path $Package "blutter-env.json"
+
+$ConfigContent = @{
+    python = "python"
+    launcher = "run_blutter.py"
+} | ConvertTo-Json -Depth 5
+
+Set-Content `
+    -Path $Config `
+    -Value $ConfigContent `
+    -Encoding UTF8
+
+
+# ==========================================================
+# VERIFY PACKAGE
+# ==========================================================
+
+Write-Host ""
+Write-Host "=================================================="
+Write-Host "VERIFYING PACKAGE"
+Write-Host "=================================================="
 Write-Host ""
 
+Write-Host "Package:"
 Get-ChildItem `
-    $Dist `
+    $Package `
     -Recurse |
     Select-Object FullName, Length |
     Format-Table -AutoSize
+
+Write-Host ""
+Write-Host "Executable:"
+
+$Exe = Join-Path $Package "blutter.exe"
+
+if (!(Test-Path $Exe)) {
+    throw "blutter.exe was not created."
+}
+
+Get-Item $Exe
+
+Write-Host ""
+Write-Host "Python:"
+Get-Item $PythonExe.FullName
+
+Write-Host ""
+Write-Host "=================================================="
+Write-Host "BUILD COMPLETE"
+Write-Host "=================================================="
+Write-Host ""
+
+Write-Host "Output:"
+Write-Host $Package
