@@ -14,24 +14,22 @@ permissions:
   contents: write
 
 jobs:
-
   build-windows:
-
     runs-on: windows-2025
 
     steps:
 
-      # ============================================================
-      # 1. Checkout
-      # ============================================================
+      # ==========================================================
+      # Checkout
+      # ==========================================================
 
       - name: Checkout repository
         uses: actions/checkout@v4
 
 
-      # ============================================================
-      # 2. Python for the BUILD environment
-      # ============================================================
+      # ==========================================================
+      # Build Python
+      # ==========================================================
 
       - name: Setup Python
         uses: actions/setup-python@v6
@@ -39,9 +37,9 @@ jobs:
           python-version: "3.12"
 
 
-      # ============================================================
-      # 3. .NET for blutter.exe launcher
-      # ============================================================
+      # ==========================================================
+      # .NET
+      # ==========================================================
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
@@ -49,9 +47,9 @@ jobs:
           dotnet-version: "8.0.x"
 
 
-      # ============================================================
-      # 4. MSVC
-      # ============================================================
+      # ==========================================================
+      # MSVC
+      # ==========================================================
 
       - name: Setup MSVC
         uses: ilammy/msvc-dev-cmd@v1
@@ -59,20 +57,31 @@ jobs:
           arch: x64
 
 
-      # ============================================================
-      # 5. Show environment
-      # ============================================================
+      # ==========================================================
+      # Environment information
+      # ==========================================================
 
       - name: Show build environment
         shell: powershell
         run: |
-          Write-Host "========================================"
-          Write-Host "Build environment"
-          Write-Host "========================================"
+          Write-Host "=============================================="
+          Write-Host "BLUTTER WINDOWS BUILD ENVIRONMENT"
+          Write-Host "=============================================="
 
+          Write-Host ""
+          Write-Host "Python:"
           python --version
+
+          Write-Host ""
+          Write-Host ".NET:"
           dotnet --version
+
+          Write-Host ""
+          Write-Host "CMake:"
           cmake --version
+
+          Write-Host ""
+          Write-Host "Ninja:"
           ninja --version
 
           Write-Host ""
@@ -80,9 +89,9 @@ jobs:
           cl
 
 
-      # ============================================================
-      # 6. Install Python build dependencies
-      # ============================================================
+      # ==========================================================
+      # Python dependencies
+      # ==========================================================
 
       - name: Install Python dependencies
         shell: powershell
@@ -94,9 +103,9 @@ jobs:
             pyelftools
 
 
-      # ============================================================
-      # 7. Download ICU
-      # ============================================================
+      # ==========================================================
+      # Download ICU
+      # ==========================================================
 
       - name: Download ICU
         shell: powershell
@@ -117,21 +126,81 @@ jobs:
             -Force `
             -Path $dir | Out-Null
 
-          Write-Host "Downloading ICU:"
+          Write-Host ""
+          Write-Host "=============================================="
+          Write-Host "DOWNLOADING ICU"
+          Write-Host "=============================================="
+          Write-Host ""
+
           Write-Host $url
+          Write-Host ""
 
-          Invoke-WebRequest `
-            -Uri $url `
-            -OutFile $zip `
-            -UseBasicParsing `
-            -MaximumRetryCount 5 `
-            -RetryIntervalSec 5
+          $maxRetries = 5
+          $retryInterval = 5
+          $success = $false
 
-          if (!(Test-Path $zip)) {
-            throw "ICU download failed."
+          for ($attempt = 1; $attempt -le $maxRetries; $attempt++) {
+
+            try {
+
+              Write-Host "Attempt $attempt of $maxRetries..."
+
+              if (Test-Path $zip) {
+                Remove-Item $zip -Force
+              }
+
+              Invoke-WebRequest `
+                -Uri $url `
+                -OutFile $zip `
+                -UseBasicParsing
+
+              if (Test-Path $zip) {
+
+                $size = (Get-Item $zip).Length
+
+                if ($size -gt 10000) {
+                  $success = $true
+                  break
+                }
+
+              }
+
+              throw "Downloaded ICU archive is invalid."
+
+            }
+            catch {
+
+              Write-Warning $_
+
+              if ($attempt -lt $maxRetries) {
+
+                Write-Host ""
+                Write-Host "Retrying in $retryInterval seconds..."
+                Start-Sleep -Seconds $retryInterval
+
+              }
+            }
           }
 
+          if (-not $success) {
+            throw "ICU download failed after $maxRetries attempts."
+          }
+
+          Write-Host ""
+          Write-Host "ICU download successful."
+
+          Write-Host "Archive size:"
+          (Get-Item $zip).Length
+
+          Write-Host ""
           Write-Host "Extracting ICU..."
+
+          if (Test-Path $out) {
+            Remove-Item `
+              $out `
+              -Recurse `
+              -Force
+          }
 
           New-Item `
             -ItemType Directory `
@@ -143,14 +212,17 @@ jobs:
             -DestinationPath $out `
             -Force
 
-          Remove-Item $zip -Force
+          Remove-Item `
+            $zip `
+            -Force
 
+          Write-Host ""
           Write-Host "ICU ready."
 
 
-      # ============================================================
-      # 8. Download Capstone
-      # ============================================================
+      # ==========================================================
+      # Download Capstone
+      # ==========================================================
 
       - name: Download Capstone
         shell: powershell
@@ -169,20 +241,73 @@ jobs:
             -Force `
             -Path $dir | Out-Null
 
-          Write-Host "Downloading Capstone:"
+          Write-Host ""
+          Write-Host "=============================================="
+          Write-Host "DOWNLOADING CAPSTONE"
+          Write-Host "=============================================="
+          Write-Host ""
+
           Write-Host $url
+          Write-Host ""
 
-          Invoke-WebRequest `
-            -Uri $url `
-            -OutFile $zip `
-            -UseBasicParsing `
-            -MaximumRetryCount 5 `
-            -RetryIntervalSec 5
+          $maxRetries = 5
+          $retryInterval = 5
+          $success = $false
 
-          if (!(Test-Path $zip)) {
-            throw "Capstone download failed."
+          for ($attempt = 1; $attempt -le $maxRetries; $attempt++) {
+
+            try {
+
+              Write-Host "Attempt $attempt of $maxRetries..."
+
+              if (Test-Path $zip) {
+                Remove-Item $zip -Force
+              }
+
+              Invoke-WebRequest `
+                -Uri $url `
+                -OutFile $zip `
+                -UseBasicParsing
+
+              if (Test-Path $zip) {
+
+                $size = (Get-Item $zip).Length
+
+                if ($size -gt 10000) {
+                  $success = $true
+                  break
+                }
+
+              }
+
+              throw "Downloaded Capstone archive is invalid."
+
+            }
+            catch {
+
+              Write-Warning $_
+
+              if ($attempt -lt $maxRetries) {
+
+                Write-Host ""
+                Write-Host "Retrying in $retryInterval seconds..."
+                Start-Sleep -Seconds $retryInterval
+
+              }
+            }
           }
 
+          if (-not $success) {
+            throw "Capstone download failed after $maxRetries attempts."
+          }
+
+          Write-Host ""
+          Write-Host "Capstone download successful."
+
+          Write-Host "Archive size:"
+          (Get-Item $zip).Length
+
+          Write-Host ""
           Write-Host "Extracting Capstone..."
 
           Expand-Archive `
@@ -190,100 +315,55 @@ jobs:
             -DestinationPath $dir `
             -Force
 
-          Remove-Item $zip -Force
-
-          $capstone = Get-ChildItem `
-            $dir `
-            -Directory |
-            Where-Object {
-              $_.Name -like "capstone-*"
-            } |
-            Select-Object -First 1
-
-          if ($null -eq $capstone) {
-            throw "Could not find extracted Capstone directory."
-          }
-
-          $target = "$dir\capstone"
-
-          if (Test-Path $target) {
-            Remove-Item `
-              $target `
-              -Recurse `
-              -Force
-          }
-
-          Rename-Item `
-            $capstone.FullName `
-            $target
-
-          Write-Host "Capstone ready."
-
-
-      # ============================================================
-      # 9. Prepare bin directory
-      # ============================================================
-
-      - name: Prepare native libraries
-        shell: powershell
-        run: |
-
-          $ErrorActionPreference = "Stop"
-
-          $bin = "$env:GITHUB_WORKSPACE\bin"
-
-          $icu = "$env:GITHUB_WORKSPACE\external\icu-windows"
-
-          $capstone = "$env:GITHUB_WORKSPACE\external\capstone"
-
-          New-Item `
-            -ItemType Directory `
-            -Force `
-            -Path $bin | Out-Null
-
-          Write-Host "Copying Capstone..."
-
-          Copy-Item `
-            "$capstone\capstone.dll" `
-            $bin `
-            -Force
-
-          Write-Host "Copying ICU..."
-
-          Copy-Item `
-            "$icu\bin64\icudt73.dll" `
-            $bin `
-            -Force
-
-          Copy-Item `
-            "$icu\bin64\icuuc73.dll" `
-            $bin `
+          Remove-Item `
+            $zip `
             -Force
 
           Write-Host ""
-          Write-Host "Native libraries:"
-          Get-ChildItem $bin
+          Write-Host "Capstone ready."
 
 
-      # ============================================================
-      # 10. Build/test Blutter native environment
-      # ============================================================
+      # ==========================================================
+      # Inspect downloaded files
+      # ==========================================================
 
-      - name: Verify Blutter environment
+      - name: Inspect dependencies
         shell: powershell
         run: |
 
-          Write-Host "Blutter files:"
+          Write-Host ""
+          Write-Host "=============================================="
+          Write-Host "DOWNLOADED DEPENDENCIES"
+          Write-Host "=============================================="
+          Write-Host ""
+
           Get-ChildItem `
-            "$env:GITHUB_WORKSPACE" `
-            -Recurse `
-            -File |
-            Select-Object FullName
+            "$env:GITHUB_WORKSPACE\external" `
+            -Recurse |
+            Select-Object FullName, Length |
+            Format-Table -AutoSize
 
 
-      # ============================================================
-      # 11. Build Windows CLI
-      # ============================================================
+      # ==========================================================
+      # Initialize Blutter
+      # ==========================================================
+
+      - name: Initialize Blutter environment
+        shell: powershell
+        run: |
+
+          Write-Host ""
+          Write-Host "=============================================="
+          Write-Host "BLUTTER INITIALIZATION"
+          Write-Host "=============================================="
+          Write-Host ""
+
+          python scripts\init_env_win.py
+
+
+      # ==========================================================
+      # Build Windows package
+      # ==========================================================
 
       - name: Build Windows package
         shell: powershell
@@ -291,12 +371,18 @@ jobs:
 
           $ErrorActionPreference = "Stop"
 
+          Write-Host ""
+          Write-Host "=============================================="
+          Write-Host "BUILDING WINDOWS PACKAGE"
+          Write-Host "=============================================="
+          Write-Host ""
+
           .\build-windows.ps1
 
 
-      # ============================================================
-      # 12. Test CLI
-      # ============================================================
+      # ==========================================================
+      # Test executable
+      # ==========================================================
 
       - name: Test CLI
         shell: powershell
@@ -309,7 +395,11 @@ jobs:
           }
 
           Write-Host ""
-          Write-Host "Testing version..."
+          Write-Host "=============================================="
+          Write-Host "CLI TEST"
+          Write-Host "=============================================="
+          Write-Host ""
+
           & $exe --version
 
           if ($LASTEXITCODE -ne 0) {
@@ -317,7 +407,7 @@ jobs:
           }
 
           Write-Host ""
-          Write-Host "Testing help..."
+
           & $exe --help
 
           if ($LASTEXITCODE -ne 0) {
@@ -325,11 +415,11 @@ jobs:
           }
 
 
-      # ============================================================
-      # 13. Package
-      # ============================================================
+      # ==========================================================
+      # Package ZIP
+      # ==========================================================
 
-      - name: Create ZIP
+      - name: Create Windows ZIP
         shell: powershell
         run: |
 
@@ -347,13 +437,17 @@ jobs:
             -CompressionLevel Optimal
 
           Write-Host ""
-          Write-Host "Created:"
+          Write-Host "=============================================="
+          Write-Host "PACKAGE CREATED"
+          Write-Host "=============================================="
+          Write-Host ""
+
           Get-Item $zip
 
 
-      # ============================================================
-      # 14. Upload artifact
-      # ============================================================
+      # ==========================================================
+      # GitHub Artifact
+      # ==========================================================
 
       - name: Upload Windows artifact
         uses: actions/upload-artifact@v4
@@ -362,9 +456,9 @@ jobs:
           path: dist/blutter-windows-x64.zip
 
 
-      # ============================================================
-      # 15. GitHub Release
-      # ============================================================
+      # ==========================================================
+      # GitHub Release
+      # ==========================================================
 
       - name: Create GitHub Release
         if: startsWith(github.ref, 'refs/tags/v')
