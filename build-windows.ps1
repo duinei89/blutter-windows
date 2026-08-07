@@ -12,7 +12,7 @@ Write-Host "=================================================="
 Write-Host ""
 
 # ==========================================================
-# 1. CLEAN
+# 1/8 CLEAN
 # ==========================================================
 
 Write-Host "[1/8] Cleaning distribution..."
@@ -28,7 +28,7 @@ New-Item `
 
 
 # ==========================================================
-# 2. BUILD C# LAUNCHER
+# 2/8 BUILD LAUNCHER
 # ==========================================================
 
 Write-Host "[2/8] Building blutter.exe..."
@@ -53,7 +53,7 @@ if ($LASTEXITCODE -ne 0) {
 
 
 # ==========================================================
-# 3. COPY BLUTTER SOURCE
+# 3/8 COPY BLUTTER SOURCE
 # ==========================================================
 
 Write-Host "[3/8] Copying Blutter source..."
@@ -75,13 +75,12 @@ foreach ($file in $SourceFiles) {
             $source `
             $Package `
             -Force
-
     }
 }
 
 
 # ==========================================================
-# 4. COPY BLUTTER DIRECTORIES
+# 4/8 COPY BLUTTER DIRECTORIES
 # ==========================================================
 
 Write-Host "[4/8] Copying Blutter directories..."
@@ -106,13 +105,12 @@ foreach ($directory in $Directories) {
             $destination `
             -Recurse `
             -Force
-
     }
 }
 
 
 # ==========================================================
-# 5. DOWNLOAD STANDALONE PYTHON
+# 5/8 DOWNLOAD STANDALONE PYTHON
 # ==========================================================
 
 Write-Host "[5/8] Downloading standalone Python..."
@@ -133,7 +131,7 @@ New-Item `
 
 
 # ----------------------------------------------------------
-# Query latest python-build-standalone release
+# Query latest release
 # ----------------------------------------------------------
 
 $ReleaseApi = "https://api.github.com/repos/astral-sh/python-build-standalone/releases/latest"
@@ -162,35 +160,54 @@ Write-Host ""
 
 
 # ----------------------------------------------------------
-# Find CPython 3.12 Windows x64 shared install_only asset
+# Find exact Windows x64 install_only archive
+#
+# IMPORTANT:
+# Current releases do NOT use "-shared".
 # ----------------------------------------------------------
 
 $Asset = $Release.assets |
     Where-Object {
-        $_.name -match "^cpython-3\.12\.[0-9]+\+.*-x86_64-pc-windows-msvc-shared-install_only\.tar\.gz$"
+        $_.name -match "^cpython-3\.12\.[0-9]+\+.*-x86_64-pc-windows-msvc-install_only\.tar\.gz$"
     } |
     Select-Object -First 1
+
+
+# ----------------------------------------------------------
+# Verify asset
+# ----------------------------------------------------------
 
 if (!$Asset) {
 
     Write-Host ""
-    Write-Host "Available Windows Python 3.12 assets:"
+    Write-Host "Available CPython 3.12 Windows x64 assets:"
     Write-Host ""
 
     $Release.assets |
         Where-Object {
-            $_.name -match "cpython-3\.12.*windows.*"
+            $_.name -match "^cpython-3\.12.*x86_64-pc-windows-msvc"
         } |
         ForEach-Object {
             Write-Host $_.name
         }
 
-    throw "Could not find a CPython 3.12 Windows x64 shared install_only archive."
+    throw "Could not find CPython 3.12 Windows x64 install_only archive."
 }
 
+
+Write-Host ""
 Write-Host "Selected Python asset:"
 Write-Host $Asset.name
 Write-Host ""
+
+Write-Host "Download URL:"
+Write-Host $Asset.browser_download_url
+Write-Host ""
+
+
+# ----------------------------------------------------------
+# Download
+# ----------------------------------------------------------
 
 $PythonArchive = Join-Path $env:TEMP "blutter-python.tar.gz"
 
@@ -199,15 +216,6 @@ if (Test-Path $PythonArchive) {
         $PythonArchive `
         -Force
 }
-
-
-# ----------------------------------------------------------
-# Download
-# ----------------------------------------------------------
-
-Write-Host "Downloading:"
-Write-Host $Asset.browser_download_url
-Write-Host ""
 
 & curl.exe `
     --location `
@@ -231,7 +239,9 @@ if (!(Test-Path $PythonArchive)) {
 $PythonArchiveSize = (Get-Item $PythonArchive).Length
 
 Write-Host ""
-Write-Host "Python archive size: $PythonArchiveSize bytes"
+Write-Host "Python archive size:"
+Write-Host "$PythonArchiveSize bytes"
+Write-Host ""
 
 if ($PythonArchiveSize -lt 1000000) {
     throw "Python archive is suspiciously small."
@@ -242,7 +252,6 @@ if ($PythonArchiveSize -lt 1000000) {
 # EXTRACT PYTHON
 # ==========================================================
 
-Write-Host ""
 Write-Host "Extracting standalone Python..."
 
 tar.exe `
@@ -282,14 +291,22 @@ Write-Host "Standalone Python:"
 Write-Host $PythonRoot
 Write-Host ""
 
-$PythonVersion = & $PythonExe.FullName --version
+
+# ==========================================================
+# VERIFY PYTHON
+# ==========================================================
 
 Write-Host "Python version:"
-Write-Host $PythonVersion
+
+& $PythonExe.FullName --version
+
+if ($LASTEXITCODE -ne 0) {
+    throw "Standalone Python does not work."
+}
 
 
 # ==========================================================
-# INSTALL BLUTTER PYTHON DEPENDENCIES
+# INSTALL PYTHON DEPENDENCIES
 # ==========================================================
 
 Write-Host ""
@@ -314,7 +331,7 @@ if ($LASTEXITCODE -ne 0) {
 
 
 # ==========================================================
-# CREATE PYTHON LAUNCHER
+# CREATE BLUTTER PYTHON LAUNCHER
 # ==========================================================
 
 Write-Host ""
@@ -331,12 +348,12 @@ ROOT = os.path.dirname(os.path.abspath(__file__))
 
 sys.path.insert(0, ROOT)
 
-script = os.path.join(ROOT, "blutter.py")
+SCRIPT = os.path.join(ROOT, "blutter.py")
 
-if not os.path.isfile(script):
-    raise FileNotFoundError(script)
+if not os.path.isfile(SCRIPT):
+    raise FileNotFoundError(SCRIPT)
 
-runpy.run_path(script, run_name="__main__")
+runpy.run_path(SCRIPT, run_name="__main__")
 '@
 
 Set-Content `
@@ -346,7 +363,7 @@ Set-Content `
 
 
 # ==========================================================
-# WRITE CONFIGURATION
+# CREATE ENVIRONMENT CONFIG
 # ==========================================================
 
 Write-Host ""
@@ -375,27 +392,28 @@ Write-Host "VERIFYING PACKAGE"
 Write-Host "=================================================="
 Write-Host ""
 
-Write-Host "Package:"
-Get-ChildItem `
-    $Package `
-    -Recurse |
-    Select-Object FullName, Length |
-    Format-Table -AutoSize
-
-Write-Host ""
-Write-Host "Executable:"
-
 $Exe = Join-Path $Package "blutter.exe"
 
 if (!(Test-Path $Exe)) {
     throw "blutter.exe was not created."
 }
 
+Write-Host "blutter.exe:"
 Get-Item $Exe
 
 Write-Host ""
 Write-Host "Python:"
 Get-Item $PythonExe.FullName
+
+Write-Host ""
+Write-Host "Package size:"
+
+Get-ChildItem `
+    $Package `
+    -Recurse `
+    -File |
+    Measure-Object -Property Length -Sum |
+    Select-Object Sum
 
 Write-Host ""
 Write-Host "=================================================="
