@@ -2,17 +2,26 @@
 #define _UNICODE
 
 #include <windows.h>
-#include <shellapi.h>
-
 #include <filesystem>
 #include <iostream>
 #include <string>
 #include <vector>
 
-#pragma comment(lib, "Shell32.lib")
-
 namespace fs = std::filesystem;
 
+
+// ============================================================
+// Branding
+// ============================================================
+
+static const wchar_t* APP_NAME = L"B(L)UTTER WINDOWS";
+static const wchar_t* AUTHOR = L"Md Tusar Akon";
+static const wchar_t* TELEGRAM = L"@im_trt";
+
+
+// ============================================================
+// Quote Windows command-line argument
+// ============================================================
 
 static std::wstring quote_arg(const std::wstring& arg)
 {
@@ -23,7 +32,9 @@ static std::wstring quote_arg(const std::wstring& arg)
 
     for (wchar_t c : arg)
     {
-        if (c == L' ' || c == L'\t' || c == L'"')
+        if (c == L' ' ||
+            c == L'\t' ||
+            c == L'"')
         {
             needs_quotes = true;
             break;
@@ -47,290 +58,394 @@ static std::wstring quote_arg(const std::wstring& arg)
 
         if (c == L'"')
         {
-            result.append(backslashes * 2 + 1, L'\\');
+            result.append(
+                backslashes * 2 + 1,
+                L'\\'
+            );
+
             result += L'"';
+
             backslashes = 0;
+
             continue;
         }
 
-        result.append(backslashes, L'\\');
+        result.append(
+            backslashes,
+            L'\\'
+        );
+
         backslashes = 0;
+
         result += c;
     }
 
-    result.append(backslashes * 2, L'\\');
+    result.append(
+        backslashes * 2,
+        L'\\'
+    );
+
     result += L'"';
 
     return result;
 }
 
 
+// ============================================================
+// Banner
+// ============================================================
+
 static void print_banner()
 {
     std::wcout
         << L"\n"
         << L"============================================================\n"
-        << L"                     B(L)UTTER WINDOWS\n"
+        << L"                    " << APP_NAME << L"\n"
+        << L"============================================================\n"
+        << L"  Flutter / Dart native AOT analysis toolkit\n"
+        << L"\n"
+        << L"  Created by : " << AUTHOR << L"\n"
+        << L"  Telegram   : " << TELEGRAM << L"\n"
         << L"============================================================\n"
         << L"\n";
 }
 
 
+// ============================================================
+// Usage
+// ============================================================
+
+static void print_usage()
+{
+    std::wcout
+        << L"Usage:\n"
+        << L"\n"
+        << L"  blutter.exe <libapp.so> <output>\n"
+        << L"\n"
+        << L"Examples:\n"
+        << L"\n"
+        << L"  blutter.exe libapp.so output\n"
+        << L"  blutter.exe E:\\\\dump\\\\libapp.so E:\\\\dump\\\\output\n"
+        << L"  blutter.exe E:\\\\dump E:\\\\dump\\\\output\n"
+        << L"  blutter.exe application.apk output\n"
+        << L"\n"
+        << L"Input directory mode:\n"
+        << L"\n"
+        << L"  The directory should contain:\n"
+        << L"    libapp.so\n"
+        << L"    libflutter.so\n"
+        << L"\n"
+        << L"The launcher automatically uses the bundled:\n"
+        << L"  Python\n"
+        << L"  CMake\n"
+        << L"  Ninja\n"
+        << L"  Git\n"
+        << L"\n"
+        << L"No separate installation is required.\n"
+        << L"\n"
+        << L"Author:\n"
+        << L"  " << AUTHOR << L"\n"
+        << L"  Telegram: " << TELEGRAM << L"\n"
+        << L"\n";
+}
+
+
+// ============================================================
+// Error helper
+// ============================================================
+
 static int fail(const std::wstring& message)
 {
-    std::wcerr << L"\nERROR: " << message << L"\n\n";
+    std::wcerr
+        << L"\n"
+        << L"ERROR: "
+        << message
+        << L"\n\n";
+
     return 1;
 }
 
 
-int wmain(int argc, wchar_t* argv[])
+// ============================================================
+// Get executable directory
+// ============================================================
+
+static bool get_executable_directory(fs::path& result)
 {
-    print_banner();
-
-    if (argc < 3)
-    {
-        std::wcout
-            << L"Usage:\n"
-            << L"  blutter.exe <libapp.so> <output>\n"
-            << L"\n"
-            << L"Example:\n"
-            << L"  blutter.exe libapp.so output\n"
-            << L"\n"
-            << L"The launcher expects libflutter.so beside libapp.so.\n"
-            << L"\n"
-            << L"Other supported input:\n"
-            << L"  blutter.exe <directory-containing-libapp-and-libflutter> <output>\n"
-            << L"  blutter.exe <application.apk> <output>\n"
-            << L"\n";
-
-        return 1;
-    }
-
-
-    // --------------------------------------------------------
-    // Locate ourselves
-    // --------------------------------------------------------
-
-    wchar_t module_path[MAX_PATH];
-
-    DWORD length = GetModuleFileNameW(
-        nullptr,
-        module_path,
+    std::vector<wchar_t> buffer(
         MAX_PATH
     );
 
-    if (length == 0 || length >= MAX_PATH)
+    for (;;)
     {
-        return fail(L"Could not determine blutter.exe location.");
-    }
-
-    fs::path exe_path(module_path);
-    fs::path root = exe_path.parent_path();
-
-
-    // --------------------------------------------------------
-    // Bundled Python
-    // --------------------------------------------------------
-
-    fs::path python_exe =
-        root / L"python" / L"python.exe";
-
-    if (!fs::exists(python_exe))
-    {
-        return fail(
-            L"Bundled Python was not found:\n  " +
-            python_exe.wstring()
+        DWORD length = GetModuleFileNameW(
+            nullptr,
+            buffer.data(),
+            static_cast<DWORD>(buffer.size())
         );
-    }
 
+        if (length == 0)
+            return false;
 
-    // --------------------------------------------------------
-    // Blutter Python entry point
-    // --------------------------------------------------------
-
-    fs::path blutter_py =
-        root / L"blutter.py";
-
-    if (!fs::exists(blutter_py))
-    {
-        return fail(
-            L"blutter.py was not found:\n  " +
-            blutter_py.wstring()
-        );
-    }
-
-
-    // --------------------------------------------------------
-    // Copy arguments
-    // --------------------------------------------------------
-
-    std::vector<std::wstring> args;
-
-    for (int i = 1; i < argc; ++i)
-    {
-        args.emplace_back(argv[i]);
-    }
-
-
-    // --------------------------------------------------------
-    // Special convenience mode:
-    //
-    // blutter.exe libapp.so output
-    //
-    // Convert this to:
-    //
-    // python blutter.py <parent-directory> output
-    //
-    // because upstream Blutter needs libflutter.so as well.
-    // --------------------------------------------------------
-
-    fs::path input_path(args[0]);
-
-    std::error_code ec;
-
-    input_path =
-        fs::absolute(input_path, ec);
-
-    if (ec)
-    {
-        return fail(
-            L"Could not resolve input path."
-        );
-    }
-
-    if (
-        fs::is_regular_file(input_path, ec) &&
-        input_path.filename() == L"libapp.so"
-    )
-    {
-        fs::path parent =
-            input_path.parent_path();
-
-        fs::path flutter =
-            parent / L"libflutter.so";
-
-        if (!fs::exists(flutter))
+        if (length < buffer.size() - 1)
         {
-            return fail(
-                L"libflutter.so was not found beside libapp.so.\n\n"
-                L"Expected:\n  " +
-                parent.wstring() +
-                L"\\libapp.so\n  " +
-                parent.wstring() +
-                L"\\libflutter.so"
-            );
+            buffer.resize(length);
+
+            result = fs::path(buffer.data()).parent_path();
+
+            return true;
         }
 
-        args[0] = parent.wstring();
+        buffer.resize(
+            buffer.size() * 2
+        );
     }
+}
 
 
-    // --------------------------------------------------------
-    // Build Python command line
-    // --------------------------------------------------------
+// ============================================================
+// Add directory to PATH
+// ============================================================
 
-    std::wstring command;
+static bool prepend_to_path(
+    const fs::path& directory,
+    std::wstring& path_cache
+)
+{
+    std::error_code ec;
 
-    command += quote_arg(python_exe.wstring());
-    command += L" ";
-    command += quote_arg(blutter_py.wstring());
-
-    for (const auto& arg : args)
+    if (!fs::exists(directory, ec) ||
+        !fs::is_directory(directory, ec))
     {
-        command += L" ";
-        command += quote_arg(arg);
+        return false;
     }
 
+    const std::wstring dir =
+        directory.wstring();
 
-    std::wcout
-        << L"Input : " << args[0] << L"\n"
-        << L"Output: " << args[1] << L"\n"
-        << L"\n"
-        << L"Starting Blutter...\n"
-        << L"\n";
+    if (path_cache.empty())
+    {
+        path_cache = dir;
+    }
+    else
+    {
+        path_cache =
+            dir +
+            L";" +
+            path_cache;
+    }
+
+    return true;
+}
 
 
-    // --------------------------------------------------------
-    // Environment
-    // --------------------------------------------------------
+// ============================================================
+// Configure bundled environment
+// ============================================================
 
-    // Put bundled tools first.
-    //
-    // This allows us to ship:
-    //
-    // tools\
-    //   cmake\
-    //   ninja\
-    //   git\
-    //
-    // without requiring the user to configure PATH.
+static bool configure_environment(
+    const fs::path& root
+)
+{
+    wchar_t buffer[32768];
 
-    wchar_t old_path_buffer[32768];
-
-    DWORD old_path_length =
+    DWORD length =
         GetEnvironmentVariableW(
             L"PATH",
-            old_path_buffer,
+            buffer,
             static_cast<DWORD>(
-                sizeof(old_path_buffer) /
+                sizeof(buffer) /
                 sizeof(wchar_t)
             )
         );
 
-    std::wstring old_path;
+    std::wstring path;
 
-    if (old_path_length > 0)
+    if (length > 0 &&
+        length < sizeof(buffer) / sizeof(wchar_t))
     {
-        old_path.assign(
-            old_path_buffer,
-            old_path_length
+        path.assign(
+            buffer,
+            length
+        );
+    }
+
+    /*
+     * Runtime DLLs:
+     *
+     *   bin\
+     *
+     * ICU and Capstone are installed here
+     * by init_env_win.py.
+     */
+
+    prepend_to_path(
+        root / L"bin",
+        path
+    );
+
+
+    /*
+     * Generic bundled tools:
+     *
+     *   tools\
+     */
+
+    prepend_to_path(
+        root / L"tools",
+        path
+    );
+
+
+    /*
+     * CMake:
+     *
+     *   tools\cmake\bin\
+     */
+
+    prepend_to_path(
+        root / L"tools" / L"cmake" / L"bin",
+        path
+    );
+
+
+    /*
+     * Git:
+     *
+     * MinGit normally contains:
+     *
+     *   cmd\
+     *   mingw64\bin\
+     */
+
+    prepend_to_path(
+        root / L"tools" / L"git" / L"cmd",
+        path
+    );
+
+    prepend_to_path(
+        root / L"tools" / L"git" / L"mingw64" / L"bin",
+        path
+    );
+
+
+    /*
+     * Ninja is placed directly inside tools.
+     *
+     * cmake.exe will find ninja.exe through PATH.
+     */
+
+
+    if (!SetEnvironmentVariableW(
+            L"PATH",
+            path.c_str()))
+    {
+        return false;
+    }
+
+    return true;
+}
+
+
+// ============================================================
+// Run Python
+// ============================================================
+
+static int run_python(
+    const fs::path& root,
+    int argc,
+    wchar_t* argv[]
+)
+{
+    const fs::path python =
+        root /
+        L"python" /
+        L"python.exe";
+
+
+    const fs::path blutter =
+        root /
+        L"blutter.py";
+
+
+    if (!fs::exists(python))
+    {
+        return fail(
+            L"Bundled Python was not found:\n  " +
+            python.wstring()
         );
     }
 
 
-    std::wstring bundled_tools =
-        (root / L"tools").wstring();
-
-    std::wstring new_path =
-        bundled_tools;
-
-    if (!old_path.empty())
+    if (!fs::exists(blutter))
     {
-        new_path += L";";
-        new_path += old_path;
+        return fail(
+            L"blutter.py was not found:\n  " +
+            blutter.wstring()
+        );
     }
 
-    SetEnvironmentVariableW(
-        L"PATH",
-        new_path.c_str()
+
+    /*
+     * Build:
+     *
+     * python.exe blutter.py ...
+     */
+
+    std::wstring command;
+
+    command += quote_arg(
+        python.wstring()
+    );
+
+    command += L" ";
+
+    command += quote_arg(
+        blutter.wstring()
     );
 
 
-    // --------------------------------------------------------
-    // Change current directory to package root
-    // --------------------------------------------------------
+    for (int i = 1; i < argc; ++i)
+    {
+        command += L" ";
 
-    SetCurrentDirectoryW(
-        root.wstring().c_str()
-    );
+        command += quote_arg(
+            argv[i]
+        );
+    }
 
 
-    // --------------------------------------------------------
-    // Launch Python
-    // --------------------------------------------------------
+    /*
+     * Run from package root.
+     */
+
+    if (!SetCurrentDirectoryW(
+            root.wstring().c_str()))
+    {
+        return fail(
+            L"Could not set working directory:\n  " +
+            root.wstring()
+        );
+    }
+
 
     STARTUPINFOW startup_info{};
+
     startup_info.cb =
         sizeof(startup_info);
 
+
     PROCESS_INFORMATION process_info{};
+
 
     std::vector<wchar_t> command_buffer(
         command.begin(),
         command.end()
     );
 
-    command_buffer.push_back(L'\0');
+    command_buffer.push_back(
+        L'\0'
+    );
 
 
     BOOL created =
@@ -347,6 +462,7 @@ int wmain(int argc, wchar_t* argv[])
             &process_info
         );
 
+
     if (!created)
     {
         DWORD error =
@@ -360,10 +476,6 @@ int wmain(int argc, wchar_t* argv[])
     }
 
 
-    // --------------------------------------------------------
-    // Wait
-    // --------------------------------------------------------
-
     WaitForSingleObject(
         process_info.hProcess,
         INFINITE
@@ -371,6 +483,7 @@ int wmain(int argc, wchar_t* argv[])
 
 
     DWORD exit_code = 1;
+
 
     GetExitCodeProcess(
         process_info.hProcess,
@@ -390,16 +503,236 @@ int wmain(int argc, wchar_t* argv[])
     if (exit_code != 0)
     {
         std::wcerr
-            << L"\nBlutter failed with exit code "
+            << L"\n"
+            << L"Blutter failed with exit code "
             << exit_code
             << L".\n\n";
     }
     else
     {
         std::wcout
-            << L"\nBlutter completed successfully.\n\n";
+            << L"\n"
+            << L"Blutter completed successfully.\n"
+            << L"\n";
     }
 
 
-    return static_cast<int>(exit_code);
+    return static_cast<int>(
+        exit_code
+    );
+}
+
+
+// ============================================================
+// Main
+// ============================================================
+
+int wmain(
+    int argc,
+    wchar_t* argv[]
+)
+{
+    print_banner();
+
+
+    if (argc < 3)
+    {
+        print_usage();
+
+        return 0;
+    }
+
+
+    fs::path root;
+
+
+    if (!get_executable_directory(root))
+    {
+        return fail(
+            L"Could not determine blutter.exe location."
+        );
+    }
+
+
+    /*
+     * Configure all bundled runtime tools.
+     */
+
+    if (!configure_environment(root))
+    {
+        return fail(
+            L"Could not configure bundled environment."
+        );
+    }
+
+
+    /*
+     * Copy command arguments.
+     */
+
+    std::vector<std::wstring> args;
+
+
+    for (int i = 1; i < argc; ++i)
+    {
+        args.emplace_back(
+            argv[i]
+        );
+    }
+
+
+    /*
+     * --------------------------------------------------------
+     * Convenience mode
+     *
+     * blutter.exe libapp.so output
+     *
+     * Upstream Blutter expects the directory containing
+     * both libapp.so and libflutter.so.
+     * --------------------------------------------------------
+     */
+
+    fs::path input_path(
+        args[0]
+    );
+
+
+    std::error_code ec;
+
+
+    input_path =
+        fs::absolute(
+            input_path,
+            ec
+        );
+
+
+    if (ec)
+    {
+        return fail(
+            L"Could not resolve input path."
+        );
+    }
+
+
+    if (
+        fs::is_regular_file(
+            input_path,
+            ec
+        ) &&
+        input_path.filename() ==
+            L"libapp.so"
+    )
+    {
+        fs::path parent =
+            input_path.parent_path();
+
+
+        fs::path flutter =
+            parent /
+            L"libflutter.so";
+
+
+        if (!fs::exists(
+                flutter,
+                ec))
+        {
+            return fail(
+                L"libflutter.so was not found beside libapp.so.\n\n"
+                L"Expected:\n  " +
+                parent.wstring() +
+                L"\\libapp.so\n  " +
+                parent.wstring() +
+                L"\\libflutter.so"
+            );
+        }
+
+
+        /*
+         * Convert:
+         *
+         * blutter.exe libapp.so output
+         *
+         * into:
+         *
+         * blutter.py <parent> output
+         */
+
+        args[0] =
+            parent.wstring();
+    }
+
+
+    /*
+     * Show actual input/output.
+     */
+
+    std::wcout
+        << L"Input : "
+        << args[0]
+        << L"\n";
+
+    std::wcout
+        << L"Output: "
+        << args[1]
+        << L"\n\n";
+
+
+    std::wcout
+        << L"Bundled environment:\n"
+        << L"  Python : "
+        << (root / L"python" / L"python.exe").wstring()
+        << L"\n"
+        << L"  Tools  : "
+        << (root / L"tools").wstring()
+        << L"\n"
+        << L"  Bin    : "
+        << (root / L"bin").wstring()
+        << L"\n\n";
+
+
+    std::wcout
+        << L"Starting Blutter...\n\n";
+
+
+    /*
+     * Construct a modified argv-like array.
+     *
+     * run_python currently uses the original argv for the
+     * command. We therefore temporarily create a new vector
+     * with the transformed arguments.
+     */
+
+    std::vector<std::wstring> final_args;
+
+    final_args.push_back(
+        argv[0]
+    );
+
+    for (const auto& arg : args)
+    {
+        final_args.push_back(
+            arg
+        );
+    }
+
+
+    std::vector<wchar_t*> final_argv;
+
+
+    for (auto& value : final_args)
+    {
+        final_argv.push_back(
+            value.data()
+        );
+    }
+
+
+    return run_python(
+        root,
+        static_cast<int>(
+            final_argv.size()
+        ),
+        final_argv.data()
+    );
 }
