@@ -47,14 +47,26 @@ jobs:
         shell: powershell
         run: |
 
-          Write-Host ""
-          Write-Host "========== MSVC =========="
-
-          where.exe cl.exe
+          $ErrorActionPreference = "Stop"
 
           Write-Host ""
+          Write-Host "============================================================"
+          Write-Host "                    MSVC ENVIRONMENT"
+          Write-Host "============================================================"
+          Write-Host ""
 
-          cl.exe 2>&1
+          $cl = Get-Command cl.exe -ErrorAction SilentlyContinue
+
+          if (!$cl) {
+              throw "cl.exe was not found."
+          }
+
+          Write-Host "cl.exe:"
+          Write-Host $cl.Source
+          Write-Host ""
+
+          Write-Host "Visual Studio environment is ready."
+          Write-Host ""
 
 
       # ======================================================
@@ -67,18 +79,34 @@ jobs:
 
           $ErrorActionPreference = "Stop"
 
+          Write-Host ""
+          Write-Host "============================================================"
+          Write-Host "                  BUILDING BLUTTER"
+          Write-Host "============================================================"
+          Write-Host ""
+
           .\build-windows.ps1
 
+          if ($LASTEXITCODE -ne 0) {
+              throw "build-windows.ps1 failed with exit code $LASTEXITCODE."
+          }
+
 
       # ======================================================
-      # VERIFY
+      # VERIFY EXECUTABLE
       # ======================================================
 
-      - name: Verify build
+      - name: Verify executable
         shell: powershell
         run: |
 
           $ErrorActionPreference = "Stop"
+
+          Write-Host ""
+          Write-Host "============================================================"
+          Write-Host "                  VERIFYING EXECUTABLE"
+          Write-Host "============================================================"
+          Write-Host ""
 
           $exe = ".\dist\blutter\blutter.exe"
 
@@ -86,16 +114,74 @@ jobs:
               throw "blutter.exe was not created."
           }
 
+          $file = Get-Item $exe
+
+          Write-Host "Path:"
+          Write-Host $file.FullName
+
           Write-Host ""
-          Write-Host "Executable successfully created:"
-          Get-Item $exe
+          Write-Host "Size:"
+          Write-Host "$($file.Length) bytes"
+
+          Write-Host ""
+          Write-Host "Executable exists."
 
 
       # ======================================================
-      # PACKAGE
+      # VERIFY BUNDLED PYTHON
       # ======================================================
 
-      - name: Create ZIP
+      - name: Verify bundled Python
+        shell: powershell
+        run: |
+
+          $ErrorActionPreference = "Stop"
+
+          $python = ".\dist\blutter\python\python.exe"
+
+          if (!(Test-Path $python)) {
+              throw "Bundled Python was not created."
+          }
+
+          Write-Host ""
+          Write-Host "Bundled Python:"
+          Write-Host $python
+          Write-Host ""
+
+          & $python --version
+
+          if ($LASTEXITCODE -ne 0) {
+              throw "Bundled Python failed."
+          }
+
+
+      # ======================================================
+      # SHOW PACKAGE
+      # ======================================================
+
+      - name: Inspect package
+        shell: powershell
+        run: |
+
+          Write-Host ""
+          Write-Host "============================================================"
+          Write-Host "                    PACKAGE CONTENTS"
+          Write-Host "============================================================"
+          Write-Host ""
+
+          Get-ChildItem `
+            ".\dist\blutter" `
+            -Recurse `
+            -File |
+            Select-Object FullName, Length |
+            Format-Table -AutoSize
+
+
+      # ======================================================
+      # CREATE ZIP
+      # ======================================================
+
+      - name: Create Windows ZIP
         shell: powershell
         run: |
 
@@ -112,24 +198,33 @@ jobs:
             -DestinationPath $zip `
             -CompressionLevel Optimal
 
+          if (!(Test-Path $zip)) {
+              throw "ZIP was not created."
+          }
+
           Write-Host ""
-          Write-Host "Package:"
+          Write-Host "============================================================"
+          Write-Host "                    PACKAGE CREATED"
+          Write-Host "============================================================"
+          Write-Host ""
+
           Get-Item $zip
 
 
       # ======================================================
-      # ARTIFACT
+      # UPLOAD ARTIFACT
       # ======================================================
 
-      - name: Upload artifact
+      - name: Upload Windows artifact
         uses: actions/upload-artifact@v4
         with:
           name: blutter-windows-x64
           path: blutter-windows-x64.zip
+          if-no-files-found: error
 
 
       # ======================================================
-      # RELEASE
+      # GITHUB RELEASE
       # ======================================================
 
       - name: Create GitHub Release
