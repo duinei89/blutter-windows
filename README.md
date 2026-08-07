@@ -1,98 +1,503 @@
-# B(l)utter
-Flutter Mobile Application Reverse Engineering Tool by Compiling Dart AOT Runtime
+Sure. I’ll wrap the entire file in a 4-backtick fence so the Markdown inside it stays raw and doesn’t render.
 
-Currently the application supports only Android libapp.so (arm64 only).
-Also the application is currently work only against recent Dart versions.
+````markdown
+# Blutter Windows
 
-For high priority missing features, see [TODO](#todo)
+> A Windows-native distribution of Blutter with a simple CLI launcher, bundled Python runtime, and GitHub Actions-powered builds.
 
+**Blutter Windows** packages the original Blutter reverse-engineering workflow into a convenient Windows executable so you can run it directly from `cmd.exe` without manually setting up Python, dependencies, or the Blutter source tree.
 
-## Environment Setup
-This application uses C++20 Formatting library. It requires very recent C++ compiler such as g++>=13, Clang>=16.
+## Features
 
-I recommend using Linux OS (only tested on Deiban sid/trixie) because it is easy to setup.
+- Native Windows `blutter.exe` launcher
+- Simple command-line interface
+- Bundled Python 3.12 runtime
+- No system Python required
+- No system .NET runtime required
+- Automatically prepares the Blutter environment
+- Automatically downloads/builds required Dart components
+- Supports `libapp.so`
+- Supports directories containing Flutter libraries
+- Supports APK input
+- Windows x64 build
+- GitHub Actions automated build
+- Portable distribution
+- Easy to add to Windows `PATH`
 
-### Debian Unstable (gcc 13)
-**_NOTE:_**
-Use ONLY Debian/Ubuntu version that provides gcc>=13 from its own main repository.
-Using ported gcc to old Debian/Ubuntu version does not work.
+## CLI
 
-- Install build tools and depenencies
-```
-apt install python3-pyelftools python3-requests git cmake ninja-build \
-    build-essential pkg-config libicu-dev libcapstone-dev
-```
+Primary usage:
 
-### Windows
-- Install git and python 3
-- Install latest Visual Studio with "Desktop development with C++" and "C++ CMake tools"
-- Install required libraries (libcapstone and libicu4c)
-```
-python scripts\init_env_win.py
-```
-- Start "x64 Native Tools Command Prompt"
-
-### macOS Sequoia
-- Install XCode
-- Install required tools
-```
-brew install cmake ninja pkg-config icu4c capstone
-pip3 install pyelftools requests
+```text
+blutter.exe <libapp.so> <output>
 ```
 
-### macOS Ventura and Sonoma (clang 16)
-- Install XCode
-- Install clang 16 and required tools
-```
-brew install llvm@16 cmake ninja pkg-config icu4c capstone
-pip3 install pyelftools requests
+Example:
+
+```cmd
+blutter.exe libapp.so output
 ```
 
-## Usage
-Extract "lib" directory from apk file
-```
-python3 blutter.py path/to/app/lib/arm64-v8a out_dir
-```
-The blutter.py will automatically detect the Dart version from the flutter engine and call executable of blutter to get the information from libapp.so.
+If `libflutter.so` is located beside `libapp.so`, Blutter will automatically use it.
 
-If the blutter executable for required Dart version does not exists, the script will automatically checkout Dart source code and compiling it.
+## Input Formats
 
-## Update
-You can use ```git pull``` to update and run blutter.py with ```--rebuild``` option to force rebuild the executable
-```
-python3 blutter.py path/to/app/lib/arm64-v8a out_dir --rebuild
+### Direct `libapp.so`
+
+```cmd
+blutter.exe E:\FlutterApp\libapp.so E:\FlutterApp\output
 ```
 
-## Output files
-- **asm/\*** libapp assemblies with symbols
-- **blutter_frida.js** the frida script template for the target application
-- **objs.txt** complete (nested) dump of Object from Object Pool
-- **pp.txt** all Dart objects in Object Pool
+Expected layout:
 
-
-## Directories
-- **bin** contains blutter executables for each Dart version in "blutter_dartvm\<ver\>\_\<os\>\_\<arch\>" format
-- **blutter** contains source code. need building against Dart VM library
-- **build** contains building projects which can be deleted after finishing the build process
-- **dartsdk** contains checkout of Dart Runtime which can be deleted after finishing the build process
-- **external** contains 3rd party libraries for Windows only
-- **packages** contains the static libraries of Dart Runtime
-- **scripts** contains python scripts for getting/building Dart
-
-
-## Generating Visual Studio Solution for Development
-I use Visual Studio to delevlop Blutter on Windows. ```--vs-sln``` options can be used to generate a Visual Studio solution.
-```
-python blutter.py path\to\lib\arm64-v8a build\vs --vs-sln
+```text
+FlutterApp\
+├── libapp.so
+└── libflutter.so
 ```
 
-## TODO
-- More code analysis
-  - Function arguments and return type
-  - Some psuedo code for code pattern
-- Generate better Frida script
-  - More internal classes
-  - Object modification
-- Obfuscated app (still missing many functions)
-- Reading iOS binary
-- Input as apk or ipa
+### Directory containing Flutter libraries
+
+```cmd
+blutter.exe E:\FlutterApp E:\FlutterApp\output
+```
+
+Example:
+
+```text
+E:\FlutterApp\
+├── libapp.so
+├── libflutter.so
+└── ...
+```
+
+### APK
+
+```cmd
+blutter.exe E:\APK\app.apk E:\APK\output
+```
+
+## Windows Installation
+
+Download the latest Windows ZIP package from the repository Releases page.
+
+Extract it somewhere convenient:
+
+```text
+E:\Tools\blutter\
+```
+
+The extracted directory should contain files similar to:
+
+```text
+blutter\
+├── blutter.exe
+├── blutter.py
+├── blutter\
+├── dartvm_fetch_build.py
+├── extract_dart_info.py
+├── python\
+├── dartsdk\
+├── scripts\
+├── bin\
+└── ...
+```
+
+Test the executable:
+
+```cmd
+E:\Tools\blutter\blutter.exe --help
+```
+
+## Add Blutter to PATH
+
+Adding the Blutter directory to Windows `PATH` allows you to execute:
+
+```cmd
+blutter
+```
+
+from any directory.
+
+For example, if Blutter is installed at:
+
+```text
+E:\Tools\blutter
+```
+
+add:
+
+```text
+E:\Tools\blutter
+```
+
+to your Windows user `PATH`.
+
+Then open a **new CMD window**.
+
+Verify:
+
+```cmd
+where blutter
+```
+
+Then:
+
+```cmd
+blutter --help
+```
+
+## Example Workflow
+
+Suppose you have:
+
+```text
+E:\Mod\
+├── libapp.so
+└── libflutter.so
+```
+
+Run:
+
+```cmd
+blutter E:\Mod E:\Mod\output
+```
+
+Blutter will initialize its environment and begin processing the Flutter application.
+
+Output will be written to:
+
+```text
+E:\Mod\output
+```
+
+## CLI Branding
+
+The Windows launcher identifies this distribution as:
+
+```text
+B(L)UTTER WINDOWS
+```
+
+Maintainer:
+
+```text
+Md Tusar Akon
+```
+
+Telegram:
+
+```text
+@im_trt
+```
+
+## Requirements
+
+The packaged Windows distribution is designed to minimize external dependencies.
+
+### Required
+
+- Windows 10/11
+- Windows x64
+- Internet connection for components that Blutter needs to obtain dynamically
+
+### Not Required
+
+The packaged CLI does not require separately installing:
+
+- Python
+- pip
+- .NET 8
+- CMake
+- Ninja
+- MSVC
+
+The distribution includes its own Python runtime and required Python dependencies.
+
+## Development Build
+
+This repository uses GitHub Actions to build the Windows distribution.
+
+The build environment is provided by GitHub-hosted Windows runners.
+
+This means you do not need a powerful local computer to build the Windows package.
+
+## GitHub Actions
+
+The workflow prepares the required build environment, including:
+
+- Python
+- .NET
+- MSVC
+- CMake
+- Ninja
+- Python dependencies
+- ICU
+- Capstone
+- Standalone Python
+- Blutter runtime files
+
+The final package is generated as:
+
+```text
+dist/blutter-windows-x64.zip
+```
+
+## Building with GitHub Actions
+
+You do not need a powerful local computer.
+
+1. Fork this repository.
+2. Open the repository on GitHub.
+3. Go to **Actions**.
+4. Select the Windows build workflow.
+5. Click **Run workflow**.
+6. Wait for the build to complete.
+7. Download the generated artifact.
+
+The workflow can also create a GitHub Release when triggered by a version tag.
+
+## Creating a Release
+
+Create and push a version tag:
+
+```bash
+git tag v1.0.0
+git push origin v1.0.0
+```
+
+The GitHub Actions workflow detects tags matching:
+
+```text
+v*
+```
+
+and publishes:
+
+```text
+blutter-windows-x64.zip
+```
+
+to the GitHub Release.
+
+## Project Structure
+
+```text
+blutter-windows/
+│
+├── .github/
+│   └── workflows/
+│       └── build-windows.yml
+│
+├── launcher/
+│   └── launcher.cpp
+│
+├── scripts/
+│   └── ...
+│
+├── blutter/
+│   └── ...
+│
+├── dartvm_fetch_build.py
+├── extract_dart_info.py
+├── blutter.py
+├── build-windows.ps1
+├── README.md
+└── LICENSE
+```
+
+## How the Launcher Works
+
+The Windows executable acts as the front-end for the bundled Blutter environment.
+
+Conceptually:
+
+```text
+blutter.exe
+    │
+    ├── Validate command line
+    │
+    ├── Locate bundled runtime
+    │
+    ├── Locate bundled Python
+    │
+    ├── Locate blutter.py
+    │
+    ├── Pass input/output arguments
+    │
+    └── Execute Blutter
+```
+
+This allows users to simply run:
+
+```cmd
+blutter input output
+```
+
+instead of manually invoking Python scripts.
+
+## Portable Design
+
+The distribution is intended to be portable.
+
+For example:
+
+```text
+E:\Tools\blutter\
+```
+
+can be moved to:
+
+```text
+D:\ReverseEngineering\blutter\
+```
+
+and used from there.
+
+If the directory is added to `PATH`, Windows can locate the executable regardless of the current working directory.
+
+## Troubleshooting
+
+### `blutter` is not recognized
+
+If CMD shows:
+
+```text
+'blutter' is not recognized as an internal or external command
+```
+
+verify:
+
+```cmd
+where blutter
+```
+
+If nothing is returned, the Blutter directory has not been added correctly to `PATH`.
+
+Close CMD, open a new CMD window, and try again.
+
+### Verify the executable
+
+Run:
+
+```cmd
+blutter --help
+```
+
+or:
+
+```cmd
+blutter
+```
+
+The CLI should display the Blutter Windows interface.
+
+### Verify the input
+
+For a normal Flutter Android application, make sure the required native libraries are available.
+
+Typical files include:
+
+```text
+libapp.so
+libflutter.so
+```
+
+For example:
+
+```text
+E:\Mod\
+├── libapp.so
+└── libflutter.so
+```
+
+Then:
+
+```cmd
+blutter E:\Mod E:\Mod\output
+```
+
+### Internet Connection
+
+Some Blutter operations may download or obtain additional Dart/Flutter-related components.
+
+If processing fails while retrieving a component, verify that internet access is available and retry.
+
+## Dart / Flutter Version Compatibility
+
+Flutter applications contain compiled Dart code and corresponding runtime metadata.
+
+Blutter determines information from the supplied Flutter binaries and may need to obtain the corresponding Dart SDK/runtime sources.
+
+For example, the analysis may report:
+
+```text
+Dart version: 3.8.1
+```
+
+Blutter can then prepare the appropriate environment for that version.
+
+Compatibility depends on:
+
+- Flutter version
+- Dart version
+- Architecture
+- Flutter engine version
+- Application build configuration
+- Blutter support for the detected runtime
+
+## Performance
+
+The initial analysis can take significantly longer than subsequent operations because Blutter may need to prepare or build version-specific components.
+
+Typical first-run flow:
+
+```text
+Detect Dart version
+        ↓
+Prepare Dart source
+        ↓
+Configure build
+        ↓
+Build required components
+        ↓
+Analyze application
+```
+
+Subsequent runs may be faster when required components are already available.
+
+## Architecture
+
+The current Windows distribution targets:
+
+```text
+x86-64 / AMD64
+```
+
+It is intended for:
+
+- Windows 10 x64
+- Windows 11 x64
+
+ARM64 Windows is not currently the primary target of this distribution.
+
+## Security Notice
+
+This project is intended for legitimate software research, interoperability, debugging, malware analysis, security research, and applications you are authorized to inspect.
+
+Only analyze software and applications for which you have the appropriate permission.
+
+Do not use this project to bypass access controls, steal proprietary code, or access data without authorization.
+
+## Credits
+
+This Windows distribution is based on the original Blutter project.
+
+The purpose of this repository is to provide a convenient Windows-native distribution and CLI experience around the existing Blutter tooling.
+
+## Maintainer
+
+**Md Tusar Akon**
+
+Telegram: **@im_trt**
+````
