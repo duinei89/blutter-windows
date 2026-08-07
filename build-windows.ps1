@@ -13,6 +13,7 @@ Write-Host "              BLUTTER WINDOWS BUILDER"
 Write-Host "============================================================"
 Write-Host ""
 
+
 # ============================================================
 # 1. CLEAN
 # ============================================================
@@ -33,15 +34,21 @@ New-Item `
 # 2. CHECK MSVC
 # ============================================================
 
+Write-Host ""
 Write-Host "[2/10] Checking MSVC..."
+Write-Host ""
 
-$cl = Get-Command cl.exe -ErrorAction SilentlyContinue
+$clCommand = Get-Command cl.exe -ErrorAction SilentlyContinue
 
-if (!$cl) {
-    throw "MSVC compiler cl.exe was not found."
+if (!$clCommand) {
+    throw "MSVC cl.exe was not found. The Visual C++ environment is not initialized."
 }
 
-Write-Host "MSVC:"
+Write-Host "MSVC location:"
+Write-Host $clCommand.Source
+Write-Host ""
+
+Write-Host "MSVC version:"
 cl.exe 2>&1 | Select-Object -First 5
 
 
@@ -51,47 +58,82 @@ cl.exe 2>&1 | Select-Object -First 5
 
 Write-Host ""
 Write-Host "[3/10] Building native blutter.exe..."
+Write-Host ""
 
 if (!(Test-Path $LauncherSource)) {
     throw "Launcher source not found: $LauncherSource"
 }
 
-Write-Host ""
 Write-Host "Source:"
-Write-Host $LauncherSource
-
+Write-Host "  $LauncherSource"
 Write-Host ""
+
 Write-Host "Output:"
-Write-Host $LauncherExe
+Write-Host "  $LauncherExe"
+Write-Host ""
 
-# IMPORTANT:
-# /Fe specifies the executable output.
-# Do NOT additionally use /OUT.
+if (Test-Path $LauncherExe) {
+    Remove-Item $LauncherExe -Force
+}
 
-cl.exe `
+Write-Host "Compiling launcher..."
+Write-Host ""
+
+$compileOutput = @()
+
+& cl.exe `
     /nologo `
-    /std:c++20 `
     /O2 `
     /EHsc `
     /MT `
     /DUNICODE `
     /D_UNICODE `
-    /Fe:"$LauncherExe" `
+    "/Fe:$LauncherExe" `
     "$LauncherSource" `
     /link `
-    /SUBSYSTEM:CONSOLE
+    /SUBSYSTEM:CONSOLE 2>&1 |
+    Tee-Object -Variable compileOutput
 
-if ($LASTEXITCODE -ne 0) {
-    throw "Native launcher compilation failed."
+$compileExitCode = $LASTEXITCODE
+
+Write-Host ""
+Write-Host "MSVC exit code: $compileExitCode"
+Write-Host ""
+
+if ($compileExitCode -ne 0) {
+
+    Write-Host ""
+    Write-Host "============================================================"
+    Write-Host "              MSVC COMPILATION FAILED"
+    Write-Host "============================================================"
+    Write-Host ""
+
+    if ($compileOutput.Count -gt 0) {
+        $compileOutput | ForEach-Object {
+            Write-Host $_
+        }
+    }
+    else {
+        Write-Host "MSVC produced no diagnostic output."
+    }
+
+    Write-Host ""
+    throw "Native launcher compilation failed with exit code $compileExitCode."
 }
 
 if (!(Test-Path $LauncherExe)) {
-    throw "blutter.exe was not generated."
+    throw "MSVC returned success, but blutter.exe was not generated."
 }
 
 Write-Host ""
-Write-Host "Native launcher created successfully:"
-Write-Host $LauncherExe
+Write-Host "============================================================"
+Write-Host "              LAUNCHER BUILD SUCCESSFUL"
+Write-Host "============================================================"
+Write-Host ""
+
+Get-Item $LauncherExe |
+    Select-Object FullName, Length |
+    Format-List
 
 
 # ============================================================
@@ -100,6 +142,7 @@ Write-Host $LauncherExe
 
 Write-Host ""
 Write-Host "[4/10] Copying Blutter source..."
+Write-Host ""
 
 $Files = @(
     "blutter.py",
@@ -158,6 +201,7 @@ foreach ($Directory in $Directories) {
 
 Write-Host ""
 Write-Host "[5/10] Downloading standalone Python..."
+Write-Host ""
 
 $PythonDir = Join-Path $Package "python"
 
@@ -166,16 +210,19 @@ New-Item `
     -Path $PythonDir `
     -Force | Out-Null
 
+
 $ApiUrl = `
     "https://api.github.com/repos/astral-sh/python-build-standalone/releases/latest"
 
 $Headers = @{
     "User-Agent" = "blutter-windows-builder"
+    "Accept"     = "application/vnd.github+json"
 }
 
-Write-Host ""
+
 Write-Host "Querying:"
 Write-Host $ApiUrl
+Write-Host ""
 
 $Release = Invoke-RestMethod `
     -Uri $ApiUrl `
@@ -183,7 +230,14 @@ $Release = Invoke-RestMethod `
     -Method Get
 
 
-# Current releases use names such as:
+Write-Host "Latest standalone Python release:"
+Write-Host $Release.tag_name
+Write-Host ""
+
+
+# Match current x64 Windows CPython 3.12 install_only archives.
+#
+# Example:
 #
 # cpython-3.12.13+20260807-x86_64-pc-windows-msvc-install_only.tar.gz
 #
@@ -198,8 +252,8 @@ $Asset = $Release.assets |
 
 if (!$Asset) {
 
+    Write-Host "Available Windows x64 CPython 3.12 assets:"
     Write-Host ""
-    Write-Host "Available x64 Windows Python assets:"
 
     $Release.assets |
         Where-Object {
@@ -210,26 +264,25 @@ if (!$Asset) {
             Write-Host $_.name
         }
 
-    throw `
-        "Could not find CPython 3.12 Windows x64 install_only archive."
+    throw "Could not find CPython 3.12 Windows x64 install_only archive."
 }
 
 
-Write-Host ""
-Write-Host "Selected Python:"
+Write-Host "Selected Python asset:"
 Write-Host $Asset.name
-
+Write-Host ""
 
 $PythonArchive = Join-Path `
     $env:TEMP `
     "blutter-python.tar.gz"
 
+
 if (Test-Path $PythonArchive) {
-    Remove-Item `
-        $PythonArchive `
-        -Force
+    Remove-Item $PythonArchive -Force
 }
 
+
+Write-Host "Downloading Python..."
 
 curl.exe `
     --location `
@@ -242,13 +295,26 @@ curl.exe `
     --output "$PythonArchive" `
     "$($Asset.browser_download_url)"
 
+
 if ($LASTEXITCODE -ne 0) {
     throw "Python download failed."
 }
 
 
+if (!(Test-Path $PythonArchive)) {
+    throw "Python archive was not downloaded."
+}
+
+
+Write-Host ""
+Write-Host "Python archive size:"
+
+(Get-Item $PythonArchive).Length
+
+
 Write-Host ""
 Write-Host "Extracting Python..."
+
 
 tar.exe `
     -xzf `
@@ -256,9 +322,11 @@ tar.exe `
     -C `
     "$PythonDir"
 
+
 if ($LASTEXITCODE -ne 0) {
     throw "Python extraction failed."
 }
+
 
 Remove-Item `
     $PythonArchive `
@@ -281,8 +349,10 @@ if (!$PythonExe) {
 Write-Host ""
 Write-Host "Bundled Python:"
 Write-Host $PythonExe.FullName
+Write-Host ""
 
 & $PythonExe.FullName --version
+
 
 if ($LASTEXITCODE -ne 0) {
     throw "Bundled Python failed to execute."
@@ -295,10 +365,13 @@ if ($LASTEXITCODE -ne 0) {
 
 Write-Host ""
 Write-Host "[6/10] Installing Python dependencies..."
+Write-Host ""
+
 
 & $PythonExe.FullName `
     -m pip install `
     --upgrade pip
+
 
 if ($LASTEXITCODE -ne 0) {
     throw "pip upgrade failed."
@@ -309,6 +382,7 @@ if ($LASTEXITCODE -ne 0) {
     -m pip install `
     requests `
     pyelftools
+
 
 if ($LASTEXITCODE -ne 0) {
     throw "Python dependencies failed."
@@ -321,6 +395,8 @@ if ($LASTEXITCODE -ne 0) {
 
 Write-Host ""
 Write-Host "[7/10] Initializing Blutter environment..."
+Write-Host ""
+
 
 $InitScript = Join-Path `
     $Package `
@@ -339,8 +415,10 @@ try {
     & $PythonExe.FullName `
         $InitScript
 
-    if ($LASTEXITCODE -ne 0) {
-        throw "init_env_win.py failed."
+    $InitExitCode = $LASTEXITCODE
+
+    if ($InitExitCode -ne 0) {
+        throw "init_env_win.py failed with exit code $InitExitCode."
     }
 
 }
@@ -351,11 +429,13 @@ finally {
 
 
 # ============================================================
-# 8. PREPARE TOOLS
+# 8. PREPARE BUNDLED TOOLS
 # ============================================================
 
 Write-Host ""
 Write-Host "[8/10] Preparing bundled tools..."
+Write-Host ""
+
 
 $Tools = Join-Path $Package "tools"
 
@@ -365,19 +445,22 @@ New-Item `
     -Force | Out-Null
 
 
-# ------------------------------------------------------------
-# Ninja
-# ------------------------------------------------------------
+# ============================================================
+# NINJA
+# ============================================================
 
 Write-Host ""
 Write-Host "Downloading Ninja..."
 
+
 $NinjaApi =
     "https://api.github.com/repos/ninja-build/ninja/releases/latest"
 
+
 $NinjaRelease = Invoke-RestMethod `
     -Uri $NinjaApi `
-    -Headers $Headers
+    -Headers $Headers `
+    -Method Get
 
 
 $NinjaAsset = $NinjaRelease.assets |
@@ -397,14 +480,22 @@ $NinjaZip = Join-Path `
     "blutter-ninja.zip"
 
 
+if (Test-Path $NinjaZip) {
+    Remove-Item $NinjaZip -Force
+}
+
+
 curl.exe `
     --location `
     --fail `
     --retry 10 `
     --retry-delay 5 `
     --retry-all-errors `
+    --connect-timeout 30 `
+    --max-time 600 `
     --output "$NinjaZip" `
     "$($NinjaAsset.browser_download_url)"
+
 
 if ($LASTEXITCODE -ne 0) {
     throw "Ninja download failed."
@@ -433,25 +524,28 @@ Remove-Item `
     -Force
 
 
-# ------------------------------------------------------------
-# CMake
-# ------------------------------------------------------------
+# ============================================================
+# CMAKE
+# ============================================================
 
 Write-Host ""
 Write-Host "Downloading CMake..."
 
+
 $CMakeApi =
     "https://api.github.com/repos/Kitware/CMake/releases/latest"
 
+
 $CMakeRelease = Invoke-RestMethod `
     -Uri $CMakeApi `
-    -Headers $Headers
+    -Headers $Headers `
+    -Method Get
 
 
 $CMakeAsset = $CMakeRelease.assets |
     Where-Object {
         $_.name -match `
-        "cmake-.*-windows-x86_64\.zip$"
+        "^cmake-.*-windows-x86_64\.zip$"
     } |
     Select-Object -First 1
 
@@ -466,14 +560,22 @@ $CMakeZip = Join-Path `
     "blutter-cmake.zip"
 
 
+if (Test-Path $CMakeZip) {
+    Remove-Item $CMakeZip -Force
+}
+
+
 curl.exe `
     --location `
     --fail `
     --retry 10 `
     --retry-delay 5 `
     --retry-all-errors `
+    --connect-timeout 30 `
+    --max-time 900 `
     --output "$CMakeZip" `
     "$($CMakeAsset.browser_download_url)"
+
 
 if ($LASTEXITCODE -ne 0) {
     throw "CMake download failed."
@@ -520,7 +622,7 @@ $CMakeBinSource =
 
 
 if (!(Test-Path $CMakeBinSource)) {
-    throw "CMake bin directory not found."
+    throw "CMake bin directory was not found."
 }
 
 
@@ -542,11 +644,13 @@ Copy-Item `
 
 
 # ============================================================
-# 9. TEST
+# 9. VERIFY PACKAGE
 # ============================================================
 
 Write-Host ""
-Write-Host "[9/10] Testing package..."
+Write-Host "[9/10] Verifying package..."
+Write-Host ""
+
 
 if (!(Test-Path $LauncherExe)) {
     throw "blutter.exe is missing."
@@ -563,17 +667,28 @@ if (!(Test-Path "$Package\blutter.py")) {
 }
 
 
-Write-Host ""
-Write-Host "Testing launcher..."
+if (!(Test-Path "$Package\scripts")) {
+    throw "scripts directory is missing."
+}
 
-& $LauncherExe
 
-# Exit code 1 is expected because no arguments were supplied.
-# Any actual Windows process failure is handled separately.
+Write-Host "blutter.exe:"
+Get-Item $LauncherExe |
+    Select-Object FullName, Length |
+    Format-List
+
 
 Write-Host ""
-Write-Host "Package contents:"
+Write-Host "Bundled Python:"
+Get-Item "$Package\python\python.exe" |
+    Select-Object FullName, Length |
+    Format-List
+
+
 Write-Host ""
+Write-Host "Package files:"
+Write-Host ""
+
 
 Get-ChildItem `
     $Package `
@@ -584,7 +699,7 @@ Get-ChildItem `
 
 
 # ============================================================
-# 10. DONE
+# 10. COMPLETE
 # ============================================================
 
 Write-Host ""
@@ -595,7 +710,7 @@ Write-Host "Package:"
 Write-Host $Package
 
 Write-Host ""
-Write-Host "Usage:"
+Write-Host "CLI:"
 Write-Host ""
 Write-Host "  blutter.exe libapp.so output"
 Write-Host ""
