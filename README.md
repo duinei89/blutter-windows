@@ -1,6 +1,3 @@
-Sure. I’ll wrap the entire file in a 4-backtick fence so the Markdown inside it stays raw and doesn’t render.
-
-````markdown
 # Blutter Windows
 
 > A Windows-native distribution of Blutter with a simple CLI launcher, bundled Python runtime, and GitHub Actions-powered builds.
@@ -500,4 +497,3 @@ The purpose of this repository is to provide a convenient Windows-native distrib
 **Md Tusar Akon**
 
 Telegram: **@im_trt**
-````
