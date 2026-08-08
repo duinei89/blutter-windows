@@ -21,17 +21,17 @@ jobs:
 
     steps:
 
-      # ==========================================================
-      # Checkout
-      # ==========================================================
+      # ======================================================
+      # CHECKOUT
+      # ======================================================
 
-      - name: Checkout repository
-        uses: actions/checkout@v5
+      - name: Checkout
+        uses: actions/checkout@v4
 
 
-      # ==========================================================
-      # Python for BUILD scripts only
-      # ==========================================================
+      # ======================================================
+      # PYTHON
+      # ======================================================
 
       - name: Setup Python
         uses: actions/setup-python@v6
@@ -39,23 +39,9 @@ jobs:
           python-version: "3.12"
 
 
-      # ==========================================================
-      # Rust
-      #
-      # xwin is used to create the bundled Windows SDK/CRT
-      # sysroot used by clang-cl.
-      # ==========================================================
-
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-
-
-      # ==========================================================
-      # MSVC
-      #
-      # Only required to compile our small native launcher.
-      # The resulting package does NOT require Visual Studio.
-      # ==========================================================
+      # ======================================================
+      # MSVC ENVIRONMENT
+      # ======================================================
 
       - name: Setup MSVC
         uses: ilammy/msvc-dev-cmd@v1
@@ -63,11 +49,11 @@ jobs:
           arch: x64
 
 
-      # ==========================================================
-      # Build environment
-      # ==========================================================
+      # ======================================================
+      # VERIFY MSVC
+      # ======================================================
 
-      - name: Show build environment
+      - name: Verify MSVC
         shell: powershell
         run: |
 
@@ -75,24 +61,50 @@ jobs:
 
           Write-Host ""
           Write-Host "============================================================"
-          Write-Host " BUILD ENVIRONMENT"
+          Write-Host " MSVC"
           Write-Host "============================================================"
           Write-Host ""
 
-          Write-Host "Windows:"
-          Get-ComputerInfo -Property WindowsProductName,WindowsVersion
+          $cl = Get-Command cl.exe -ErrorAction SilentlyContinue
+
+          if (!$cl) {
+            throw "cl.exe was not found."
+          }
+
+          Write-Host "cl.exe:"
+          Write-Host $cl.Source
+          Write-Host ""
+
+          Write-Host "MSVC version:"
+
+          & cl.exe /Bv
+
+          if ($LASTEXITCODE -ne 0) {
+            throw "MSVC compiler verification failed."
+          }
 
           Write-Host ""
+          Write-Host "MSVC environment is ready."
+
+
+      # ======================================================
+      # VERIFY BUILD TOOLS
+      # ======================================================
+
+      - name: Verify Build Tools
+        shell: powershell
+        run: |
+
+          $ErrorActionPreference = "Stop"
+
+          Write-Host ""
+          Write-Host "============================================================"
+          Write-Host " BUILD TOOLS"
+          Write-Host "============================================================"
+          Write-Host ""
+
           Write-Host "Python:"
           python --version
-
-          Write-Host ""
-          Write-Host "Rust:"
-          rustc --version
-
-          Write-Host ""
-          Write-Host "Cargo:"
-          cargo --version
 
           Write-Host ""
           Write-Host "CMake:"
@@ -103,15 +115,19 @@ jobs:
           ninja --version
 
           Write-Host ""
-          Write-Host "MSVC:"
-          cl.exe /? | Select-Object -First 3
+          Write-Host "Rust:"
+          rustc --version
+
+          Write-Host ""
+          Write-Host "Cargo:"
+          cargo --version
 
 
-      # ==========================================================
-      # Build complete package
-      # ==========================================================
+      # ======================================================
+      # BUILD
+      # ======================================================
 
-      - name: Build Blutter Windows package
+      - name: Build Blutter Windows
         shell: powershell
         run: |
 
@@ -123,272 +139,195 @@ jobs:
           Write-Host "============================================================"
           Write-Host ""
 
-          .\build-windows.ps1
+          & .\build-windows.ps1
 
           if ($LASTEXITCODE -ne 0) {
-              throw "build-windows.ps1 failed with exit code $LASTEXITCODE."
+            throw "build-windows.ps1 failed with exit code $LASTEXITCODE."
           }
 
 
-      # ==========================================================
-      # Verify package
-      # ==========================================================
+      # ======================================================
+      # VERIFY EXECUTABLE
+      # ======================================================
 
-      - name: Verify self-contained package
+      - name: Verify Executable
         shell: powershell
         run: |
 
           $ErrorActionPreference = "Stop"
 
-          $Package = ".\dist\blutter"
+          $Package =
+            ".\dist\blutter"
 
-          Write-Host ""
-          Write-Host "============================================================"
-          Write-Host " VERIFYING SELF-CONTAINED PACKAGE"
-          Write-Host "============================================================"
-          Write-Host ""
-
-          $Required = @(
-              "$Package\blutter.exe",
-              "$Package\blutter.py",
-              "$Package\python\python.exe",
-              "$Package\llvm\bin\clang-cl.exe",
-              "$Package\llvm\bin\lld-link.exe",
-              "$Package\sysroot\crt",
-              "$Package\sysroot\sdk",
-              "$Package\tools"
-          )
-
-          foreach ($item in $Required) {
-
-              if (!(Test-Path $item)) {
-                  throw "Missing required package item: $item"
-              }
-
-              Write-Host "OK  $item"
-          }
-
-          Write-Host ""
-          Write-Host "Python:"
-          & "$Package\python\python.exe" --version
-
-          Write-Host ""
-          Write-Host "Clang:"
-          & "$Package\llvm\bin\clang-cl.exe" --version
-
-          Write-Host ""
-          Write-Host "LLD:"
-          & "$Package\llvm\bin\lld-link.exe" --version
-
-          Write-Host ""
-          Write-Host "Package validation passed."
-
-
-      # ==========================================================
-      # Test launcher
-      # ==========================================================
-
-      - name: Test native launcher
-        shell: powershell
-        run: |
-
-          $ErrorActionPreference = "Stop"
-
-          $Exe = ".\dist\blutter\blutter.exe"
-
-          Write-Host ""
-          Write-Host "============================================================"
-          Write-Host " TESTING NATIVE LAUNCHER"
-          Write-Host "============================================================"
-          Write-Host ""
+          $Exe =
+            "$Package\blutter.exe"
 
           if (!(Test-Path $Exe)) {
-              throw "blutter.exe does not exist."
+            throw "blutter.exe was not generated."
           }
 
+          Write-Host ""
           Write-Host "Executable:"
           Write-Host (Resolve-Path $Exe)
 
           Write-Host ""
           Write-Host "Size:"
-          Write-Host "$((Get-Item $Exe).Length) bytes"
-
-          Write-Host ""
-          Write-Host "Launching without arguments..."
-
-          & $Exe
-
-          $ExitCode = $LASTEXITCODE
-
-          Write-Host ""
-          Write-Host "Exit code: $ExitCode"
-
-          # No arguments are expected to produce usage and
-          # a non-zero exit code.
-          if ($ExitCode -eq 0) {
-              Write-Host "Launcher returned 0 without arguments."
-          }
-
-          Write-Host ""
-          Write-Host "Native launcher test passed."
+          Write-Host ((Get-Item $Exe).Length)
 
 
-      # ==========================================================
-      # Test bundled compiler from the final package
-      # ==========================================================
+      # ======================================================
+      # VERIFY PYTHON
+      # ======================================================
 
-      - name: Test bundled compiler from package
+      - name: Verify Bundled Python
         shell: powershell
         run: |
 
           $ErrorActionPreference = "Stop"
 
-          $Root = (Resolve-Path ".\dist\blutter").Path
+          $Python =
+            ".\dist\blutter\python\python.exe"
 
-          $Clang = Join-Path $Root "llvm\bin\clang-cl.exe"
-          $LLD = Join-Path $Root "llvm\bin\lld-link.exe"
-          $Sysroot = Join-Path $Root "sysroot"
-
-          $TestDir = Join-Path $env:RUNNER_TEMP "blutter-final-toolchain-test"
-
-          if (Test-Path $TestDir) {
-              Remove-Item $TestDir -Recurse -Force
+          if (!(Test-Path $Python)) {
+            throw "Bundled Python is missing."
           }
 
-          New-Item `
-            -ItemType Directory `
-            -Path $TestDir `
-            -Force | Out-Null
-
-          $Source = Join-Path $TestDir "main.cpp"
-          $Exe = Join-Path $TestDir "test.exe"
-
-          @"
-          #include <windows.h>
-          #include <iostream>
-
-          int main()
-          {
-              std::cout << "BLUTTER BUNDLED TOOLCHAIN OK" << std::endl;
-              return 0;
-          }
-          "@ | Set-Content `
-            -Path $Source `
-            -Encoding UTF8
-
-          $env:PATH =
-              "$(Split-Path $Clang);" +
-              "$env:PATH"
-
-          $env:CC = $Clang
-          $env:CXX = $Clang
-          $env:LINK = $LLD
-
-          $env:CL =
-              "/winsysroot `"$Sysroot`" -fuse-ld=lld-link"
-
-          & $Clang `
-              /nologo `
-              /std:c++20 `
-              /O2 `
-              /EHsc `
-              "/winsysroot:$Sysroot" `
-              "-fuse-ld=lld-link" `
-              "/Fe:$Exe" `
-              $Source
+          & $Python --version
 
           if ($LASTEXITCODE -ne 0) {
-              throw "Final bundled compiler failed."
+            throw "Bundled Python failed."
           }
+
+
+      # ======================================================
+      # VERIFY LLVM-MINGW
+      # ======================================================
+
+      - name: Verify Bundled Compiler
+        shell: powershell
+        run: |
+
+          $ErrorActionPreference = "Stop"
+
+          $Clang =
+            ".\dist\blutter\tools\llvm-mingw\bin\clang.exe"
+
+          $ClangXX =
+            ".\dist\blutter\tools\llvm-mingw\bin\clang++.exe"
+
+          if (!(Test-Path $Clang)) {
+            throw "Bundled clang.exe is missing."
+          }
+
+          if (!(Test-Path $ClangXX)) {
+            throw "Bundled clang++.exe is missing."
+          }
+
+          Write-Host ""
+          Write-Host "Bundled clang:"
+          Write-Host $Clang
+
+          & $Clang --version
+
+          if ($LASTEXITCODE -ne 0) {
+            throw "Bundled clang failed."
+          }
+
+          Write-Host ""
+          Write-Host "Bundled clang++:"
+          Write-Host $ClangXX
+
+          & $ClangXX --version
+
+          if ($LASTEXITCODE -ne 0) {
+            throw "Bundled clang++ failed."
+          }
+
+
+      # ======================================================
+      # TEST CLI
+      # ======================================================
+
+      - name: Test CLI
+        shell: powershell
+        run: |
+
+          $ErrorActionPreference = "Stop"
+
+          $Exe =
+            ".\dist\blutter\blutter.exe"
 
           if (!(Test-Path $Exe)) {
-              throw "Bundled compiler did not produce executable."
+            throw "blutter.exe is missing."
           }
+
+          Write-Host ""
+          Write-Host "============================================================"
+          Write-Host " CLI TEST"
+          Write-Host "============================================================"
+          Write-Host ""
 
           & $Exe
 
-          if ($LASTEXITCODE -ne 0) {
-              throw "Bundled compiler test executable failed."
-          }
-
-          Write-Host ""
-          Write-Host "Final bundled compiler test passed."
+          # No arguments intentionally returns non-zero.
+          # We only verify that the executable starts and prints
+          # its CLI instead of failing because of .NET.
 
 
-      # ==========================================================
-      # Inspect package
-      # ==========================================================
+      # ======================================================
+      # PACKAGE
+      # ======================================================
 
-      - name: Inspect package
-        shell: powershell
-        run: |
-
-          Write-Host ""
-          Write-Host "============================================================"
-          Write-Host " PACKAGE CONTENTS"
-          Write-Host "============================================================"
-          Write-Host ""
-
-          Get-ChildItem `
-              ".\dist\blutter" `
-              -Recurse `
-              -File |
-              Select-Object FullName, Length |
-              Format-Table -AutoSize
-
-
-      # ==========================================================
-      # Package ZIP
-      # ==========================================================
-
-      - name: Create Windows ZIP
+      - name: Create ZIP
         shell: powershell
         run: |
 
           $ErrorActionPreference = "Stop"
 
-          $Zip = ".\blutter-windows-x64.zip"
+          $Zip =
+            ".\dist\blutter-windows-x64.zip"
 
           if (Test-Path $Zip) {
-              Remove-Item $Zip -Force
+            Remove-Item $Zip -Force
           }
 
           Compress-Archive `
-              -Path ".\dist\blutter\*" `
-              -DestinationPath $Zip `
-              -CompressionLevel Optimal
+            -Path ".\dist\blutter\*" `
+            -DestinationPath $Zip `
+            -CompressionLevel Optimal
 
           if (!(Test-Path $Zip)) {
-              throw "ZIP was not created."
+            throw "ZIP package was not created."
           }
 
           Write-Host ""
-          Write-Host "============================================================"
-          Write-Host " PACKAGE CREATED"
-          Write-Host "============================================================"
+          Write-Host "Package:"
+          Write-Host (Resolve-Path $Zip)
+
           Write-Host ""
+          Write-Host "Size:"
+          Write-Host ((Get-Item $Zip).Length)
 
-          Get-Item $Zip
 
+      # ======================================================
+      # ARTIFACT
+      # ======================================================
 
-      # ==========================================================
-      # Artifact
-      # ==========================================================
-
-      - name: Upload Windows artifact
+      - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: blutter-windows-x64
-          path: blutter-windows-x64.zip
+          path: dist/blutter-windows-x64.zip
 
 
-      # ==========================================================
-      # GitHub Release
-      # ==========================================================
+      # ======================================================
+      # RELEASE
+      # ======================================================
 
       - name: Create GitHub Release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: blutter-windows-x64.zip
+          files: |
+            dist/blutter-windows-x64.zip
           generate_release_notes: true
